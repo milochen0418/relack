@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "relack"
+version = "0.1.0"
+description = "A Reflex project"
+authors = ["Admin <admin@example.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+reflex = ">=0.8.23"
+faker = "*"
+reflex-google-auth = "*"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

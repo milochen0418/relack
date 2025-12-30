@@ -1,3 +1,6 @@
+.web
+assets/external/
+.states
 .web/
 .states/
 __pycache__/

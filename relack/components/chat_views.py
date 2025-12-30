@@ -9,6 +9,15 @@ class CreateRoomState(rx.State):
     description: str = ""
     is_open: bool = False
 
+    def set_name(self, name: str):
+        self.name = name
+
+    def set_description(self, description: str):
+        self.description = description
+
+    def set_is_open(self, is_open: bool):
+        self.is_open = is_open
+
     @rx.event
     def toggle(self):
         self.is_open = not self.is_open

@@ -4,6 +4,7 @@ from relack.states.auth_state import AuthState
 import datetime
 import uuid
 import logging
+from typing import Any
 
 
 class GlobalLobbyState(rx.SharedState):
@@ -232,7 +233,7 @@ class RoomState(rx.SharedState):
         return await self._unlink()
 
     @rx.event
-    def send_message(self, form_data: dict[str, str]):
+    def send_message(self, form_data: dict[str, Any]):
         message_text = form_data.get("message", "").strip()
         if not message_text:
             return

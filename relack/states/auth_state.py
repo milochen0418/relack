@@ -20,6 +20,18 @@ class AuthState(GoogleAuthState):
     reg_bio: str = ""
     _requires_registration: bool = False
 
+    def set_guest_nickname(self, value: str):
+        self.guest_nickname = value
+
+    def set_reg_username(self, value: str):
+        self.reg_username = value
+
+    def set_reg_nickname(self, value: str):
+        self.reg_nickname = value
+
+    def set_reg_bio(self, value: str):
+        self.reg_bio = value
+
     @rx.var
     def user(self) -> UserProfile | None:
         """
