@@ -10,6 +10,7 @@ python = "^3.10"
 reflex = ">=0.8.23"
 faker = "*"
 reflex-google-auth = "*"
+python-dotenv = "^1.2.1"
 
 [build-system]
 requires = ["poetry-core"]
