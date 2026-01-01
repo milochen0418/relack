@@ -1,6 +1,7 @@
 from playwright.sync_api import sync_playwright
 import sys
 import time
+import select
 
 def run():
     with sync_playwright() as p:
@@ -40,20 +41,32 @@ def run():
             
             print("Success: Google Login UI is visible.")
             
-            # Check for test credentials
-            import os
-            test_email = os.environ.get("GOOGLE_TEST_EMAIL")
+            # Setup auto-fill for Google Login popup
+            target_email = "joanmirochen@gmail.com"
             
-            if test_email:
-                print(f"Found test email: {test_email}. (Automation not fully implemented)")
-            else:
-                print("\n" + "="*60)
-                print("USER ACTION REQUIRED:")
-                print("1. Please manually click the 'Sign in with Google' button in the browser.")
-                print("2. Enter your Google credentials in the popup window.")
-                print("3. Complete the login process.")
-                print("Waiting 60 seconds for login to complete...")
-                print("="*60 + "\n")
+            def handle_popup(popup):
+                print(f"New window detected: {popup.url}")
+                if "accounts.google.com" in popup.url:
+                    print("Google Login popup detected.")
+                    try:
+                        popup.wait_for_load_state("domcontentloaded")
+                        print(f"Auto-filling email: {target_email}")
+                        popup.wait_for_selector("input[type='email']", timeout=10000).fill(target_email)
+                        print("Email filled. Clicking Next...")
+                        popup.get_by_role("button", name="Next").click()
+                    except Exception as e:
+                        print(f"Could not auto-fill email: {e}")
+
+            context.on("page", handle_popup)
+
+            print("\n" + "="*60)
+            print("USER ACTION REQUIRED:")
+            print("1. Please manually click the 'Sign in with Google' button in the browser.")
+            print(f"2. The script will attempt to fill '{target_email}' for you.")
+            print("3. Enter your password manually.")
+            print("4. Complete the login process.")
+            print("Waiting 60 seconds for login to complete...")
+            print("="*60 + "\n")
 
             # Wait for login success (either Registration form or Dashboard)
             # We look for "Finish Profile" (registration) or "Channels"/"Direct Messages" (dashboard)
@@ -73,11 +86,23 @@ def run():
                 # The "Sign In with Google" text should disappear or we navigate away.
                 
                 print("Waiting for 'Finish Profile' screen or Dashboard...")
+                print("(Tip: Press ENTER 3 times in the terminal to abort waiting immediately)")
                 
                 # We can loop and check multiple conditions
                 start_time = time.time()
                 logged_in = False
+                enter_presses = 0
+
                 while time.time() - start_time < 60:
+                    # Check for manual abort via stdin (Enter key)
+                    # select.select([sys.stdin], [], [], 0) checks if stdin has data waiting
+                    if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
+                        _ = sys.stdin.readline()
+                        enter_presses += 1
+                        print(f"Abort counter: {enter_presses}/3")
+                        if enter_presses >= 3:
+                             raise Exception("Manual abort: User pressed Enter 3 times.")
+
                     if page.get_by_text("Finish Profile").is_visible():
                         print("Detected Registration Screen ('Finish Profile').")
                         
