@@ -85,8 +85,8 @@ class GlobalLobbyState(rx.SharedState):
     async def clear_all_data(self):
         """Resets all shared state data to initial state."""
         auth = await self.get_state(AuthState)
-        if not auth.user:
-            yield rx.toast("Authentication required.")
+        if not auth.user or auth.user.is_guest:
+            yield rx.toast("Admin privileges required.")
             return
         self._rooms = {
             "General": RoomInfo(

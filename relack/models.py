@@ -6,6 +6,7 @@ import datetime
 
 class UserProfile(BaseModel):
     username: str
+    email: str = ""
     nickname: str = ""
     is_guest: bool
     bio: str = ""
