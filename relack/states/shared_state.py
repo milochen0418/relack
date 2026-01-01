@@ -15,7 +15,6 @@ class GlobalLobbyState(rx.SharedState):
 
     _rooms: dict[str, RoomInfo] = {}
     _known_profiles: dict[str, UserProfile] = {}
-    _google_registry: dict[str, UserProfile] = {}
 
     @rx.var
     def room_list(self) -> list[RoomInfo]:
@@ -52,10 +51,6 @@ class GlobalLobbyState(rx.SharedState):
         auth = await self.get_state(AuthState)
         if not auth.user:
             return rx.toast("You must be logged in to create a room.")
-        if auth.user.is_guest:
-            return rx.toast(
-                "Guest users cannot create rooms. Please sign in with Google."
-            )
         if room_name in self._rooms:
             return rx.toast("Room already exists")
         self._rooms[room_name] = RoomInfo(
@@ -90,8 +85,8 @@ class GlobalLobbyState(rx.SharedState):
     async def clear_all_data(self):
         """Resets all shared state data to initial state."""
         auth = await self.get_state(AuthState)
-        if not auth.user or auth.user.is_guest:
-            yield rx.toast("Admin privileges required.")
+        if not auth.user:
+            yield rx.toast("Authentication required.")
             return
         self._rooms = {
             "General": RoomInfo(
@@ -107,7 +102,6 @@ class GlobalLobbyState(rx.SharedState):
             ),
         }
         self._known_profiles = {}
-        self._google_registry = {}
         room_state = await self.get_state(RoomState)
         yield RoomState.reset_room_state
         yield rx.toast("Database cleared successfully!")

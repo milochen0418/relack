@@ -33,16 +33,6 @@ def run():
         # Test Guest Login
         print("Testing Guest Login...")
         try:
-            # Click the 'Guest' tab button. 
-            # Using exact=True to distinguish from 'Continue as Guest' button if needed,
-            # or targeting the specific tab button class/structure.
-            # The previous error showed:
-            # 1) <button ...>Guest</button>
-            # 2) <button ...>Continue as Guest</button>
-            
-            print("Clicking 'Guest' tab...")
-            page.get_by_role("button", name="Guest", exact=True).click()
-            
             print("Filling nickname...")
             # Wait for input to be visible
             page.get_by_placeholder("CoolPanda99").fill("AutoTester")
@@ -70,29 +60,6 @@ def run():
         except Exception as e:
             print(f"Guest login failed: {e}")
             page.screenshot(path="guest_login_failure.png")
-            browser.close()
-            sys.exit(1)
-
-        # Test Google Login UI (Visual check only since we can't easily automate full Google auth without credentials)
-        print("Testing Google Login UI...")
-        try:
-            # Reload page to reset state (or logout if implemented)
-            page.goto("http://localhost:3000")
-            
-            print("Clicking 'Google Login' tab...")
-            page.get_by_role("button", name="Google Login").click()
-            
-            print("Checking for 'Sign In with Google' text...")
-            if page.get_by_text("Sign In with Google").is_visible():
-                print("Success: Google Login UI is visible.")
-            else:
-                print("Error: Google Login UI not visible.")
-                page.screenshot(path="google_ui_failure.png")
-                browser.close()
-                sys.exit(1)
-                
-        except Exception as e:
-            print(f"Google Login UI test failed: {e}")
             browser.close()
             sys.exit(1)
 

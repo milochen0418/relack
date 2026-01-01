@@ -18,12 +18,10 @@ Many enterprises are increasingly concerned that storing sensitive internal comm
 
 ## Screenshots
 
-### Authentication Options
-Relack supports both anonymous guest access and secure Google authentication.
+### Authentication
+Relack supports anonymous guest access for quick and easy collaboration.
 
-| Guest Login | Google Login |
-|:-----------:|:------------:|
-| ![Guest Login](docs/images/guest-login.png) | ![Google Login](docs/images/google-login.png) |
+![Guest Login](docs/images/guest-login.png)
 
 ### Main Interface
 A full-featured chat interface with room management and real-time messaging.

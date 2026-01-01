@@ -58,26 +58,13 @@ def navbar() -> rx.Component:
                                         ),
                                         class_name="text-sm font-bold text-gray-900 leading-none",
                                     ),
-                                    rx.cond(
-                                        AuthState.user.is_guest,
-                                        rx.el.div(
-                                            rx.icon("ghost", class_name="h-3 w-3 mr-1"),
-                                            rx.el.span(
-                                                "已訪客登入",
-                                                class_name="text-[10px] font-medium whitespace-nowrap",
-                                            ),
-                                            class_name="flex items-center text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-md mt-0.5",
+                                    rx.el.div(
+                                        rx.icon("ghost", class_name="h-3 w-3 mr-1"),
+                                        rx.el.span(
+                                            "已訪客登入",
+                                            class_name="text-[10px] font-medium whitespace-nowrap",
                                         ),
-                                        rx.el.div(
-                                            rx.icon(
-                                                "badge-check", class_name="h-3 w-3 mr-1"
-                                            ),
-                                            rx.el.span(
-                                                "已Google登入",
-                                                class_name="text-[10px] font-medium whitespace-nowrap",
-                                            ),
-                                            class_name="flex items-center text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md mt-0.5",
-                                        ),
+                                        class_name="flex items-center text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-md mt-0.5",
                                     ),
                                     class_name="flex flex-col",
                                 ),

@@ -12,8 +12,6 @@ class UserProfile(BaseModel):
     avatar_seed: str = ""
     created_at: str = ""
     token: str = ""
-    google_id: str = ""
-    email: str = ""
 
 
 class ChatMessage(BaseModel):

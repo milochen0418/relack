@@ -4,7 +4,6 @@ from relack.components.auth_views import auth_container
 from relack.components.chat_views import chat_dashboard
 from relack.states.auth_state import AuthState
 from relack.states.shared_state import GlobalLobbyState
-from reflex_google_auth import google_oauth_provider
 
 
 def welcome_hero() -> rx.Component:
@@ -27,12 +26,10 @@ def welcome_hero() -> rx.Component:
 
 def index() -> rx.Component:
     return rx.el.div(
-        google_oauth_provider(
-            rx.el.div(
-                navbar(),
-                rx.cond(AuthState.user, chat_dashboard(), welcome_hero()),
-                class_name="min-h-screen bg-gray-50/50 font-sans",
-                on_mount=[GlobalLobbyState.join_lobby, AuthState.check_google_auth],
-            )
+        rx.el.div(
+            navbar(),
+            rx.cond(AuthState.user, chat_dashboard(), welcome_hero()),
+            class_name="min-h-screen bg-gray-50/50 font-sans",
+            on_mount=[GlobalLobbyState.join_lobby],
         )
     )
