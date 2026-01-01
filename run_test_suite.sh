@@ -14,8 +14,16 @@ OUTPUT_DIR="$TEST_DIR/output"
 mkdir -p "$OUTPUT_DIR"
 
 # 1. Kill old processes
-echo "Cleaning up old Reflex processes..."
-lsof -ti:3000,8000 | xargs kill -9 2>/dev/null
+echo "Checking for processes on ports 3000 and 8000..."
+PIDS=$(lsof -ti:3000,8000)
+
+if [ -n "$PIDS" ]; then
+  echo "Killing processes: $PIDS"
+  kill -9 $PIDS
+  echo "Processes killed."
+else
+  echo "No processes found on ports 3000 or 8000."
+fi
 
 # 2. Start server in background
 # We redirect input from /dev/null to prevent "suspended (tty input)" errors
