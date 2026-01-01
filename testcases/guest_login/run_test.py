@@ -2,7 +2,13 @@ from playwright.sync_api import sync_playwright
 import time
 import sys
 
+import os
+
 def run():
+    # Ensure output directory exists
+    output_dir = os.path.join(os.path.dirname(__file__), "output")
+    os.makedirs(output_dir, exist_ok=True)
+
     with sync_playwright() as p:
         print("Launching browser...")
         # headless=False allows us to see what's happening
@@ -59,7 +65,7 @@ def run():
             
         except Exception as e:
             print(f"Guest login failed: {e}")
-            page.screenshot(path="guest_login_failure.png")
+            page.screenshot(path=os.path.join(output_dir, "guest_login_failure.png"))
             browser.close()
             sys.exit(1)
 

@@ -22,6 +22,7 @@ venv/
 
 # Playwright / Test Artifacts
 playwright_user_data/
+testcases/**/output/
 google_login_timeout.png
 google_login_failure.png
 google_login_success.png

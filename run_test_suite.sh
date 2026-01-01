@@ -1,5 +1,18 @@
 #!/bin/bash
 
+SUITE_NAME=${1:-guest_login}
+TEST_SCRIPT="$SUITE_NAME/run_test.py"
+
+if [ ! -f "testcases/$TEST_SCRIPT" ]; then
+    echo "Error: Test case not found at 'testcases/$TEST_SCRIPT'"
+    exit 1
+fi
+
+TEST_DIR=$(dirname "testcases/$TEST_SCRIPT")
+OUTPUT_DIR="$TEST_DIR/output"
+
+mkdir -p "$OUTPUT_DIR"
+
 # 1. Kill old processes
 echo "Cleaning up old Reflex processes..."
 lsof -ti:3000,8000 | xargs kill -9 2>/dev/null
@@ -7,7 +20,8 @@ lsof -ti:3000,8000 | xargs kill -9 2>/dev/null
 # 2. Start server in background
 # We redirect input from /dev/null to prevent "suspended (tty input)" errors
 echo "Starting Reflex server in background..."
-poetry run reflex run < /dev/null > reflex.log 2>&1 &
+echo "Logs will be written to $OUTPUT_DIR/reflex.log"
+poetry run reflex run < /dev/null > "$OUTPUT_DIR/reflex.log" 2>&1 &
 SERVER_PID=$!
 echo "Reflex Server started with PID: $SERVER_PID"
 
@@ -20,7 +34,7 @@ for ((i=1; i<=MAX_RETRIES; i++)); do
         echo "Server is up and running on ports 3000 & 8000!"
         
         # 4. Run the test script
-        TEST_SCRIPT=${1:-guest_login_test.py}
+        # TEST_SCRIPT is defined at the top
         echo "---------------------------------------------------"
         echo "Running Playwright test (testcases/$TEST_SCRIPT)..."
         echo "---------------------------------------------------"
@@ -37,14 +51,14 @@ for ((i=1; i<=MAX_RETRIES; i++)); do
         echo "Stopping Reflex server (PID $SERVER_PID)..."
         kill $SERVER_PID 2>/dev/null
         
-        echo "You can check logs in 'reflex.log'"
+        echo "You can check logs in '$OUTPUT_DIR/reflex.log'"
         exit $TEST_EXIT_CODE
     fi
     
     # Check if process died early
     if ! ps -p $SERVER_PID > /dev/null; then
         echo "Server process $SERVER_PID died unexpectedly!"
-        cat reflex.log
+        cat "$OUTPUT_DIR/reflex.log"
         exit 1
     fi
     
