@@ -123,8 +123,13 @@ class AuthState(GoogleAuthState):
         return rx.toast(f"Welcome, {profile.username}!")
 
     @rx.event
-    def logout(self):
+    async def logout(self):
         """Completely clear all session and local data."""
+        from relack.states.shared_state import RoomState
+        room_state = await self.get_state(RoomState)
+        if room_state.in_room:
+            await room_state.handle_leave_room()
+
         self.user_profile_json = ""
         self.guest_nickname = ""
         yield rx.clear_local_storage()

@@ -224,7 +224,8 @@ class RoomState(rx.SharedState):
         lobby = await self.get_state(GlobalLobbyState)
         if lobby._linked_to == "global-lobby":
             lobby._update_participant_count(self._room_name, -1)
-        return await self._unlink()
+        await self._unlink()
+        self._room_name = ""
 
     @rx.event
     def send_message(self, form_data: dict[str, Any]):
