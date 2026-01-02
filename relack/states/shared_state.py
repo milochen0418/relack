@@ -1,4 +1,5 @@
 import reflex as rx
+import json
 from relack.models import RoomInfo, ChatMessage, UserProfile, ChatMessageLog
 from relack.states.auth_state import AuthState
 import datetime
@@ -16,6 +17,8 @@ class GlobalLobbyState(rx.SharedState):
     _rooms: dict[str, RoomInfo] = {}
     _known_profiles: dict[str, UserProfile] = {}
     _messages_by_room: dict[str, list[ChatMessage]] = {}
+    export_payload: str = ""
+    import_payload: str = ""
 
     @rx.var
     def room_list(self) -> list[RoomInfo]:
@@ -35,6 +38,10 @@ class GlobalLobbyState(rx.SharedState):
                 logs.append(ChatMessageLog(room_name=room_name, message=msg))
         # Keep the most recent 200 entries overall to avoid huge tables
         return logs[-200:]
+
+    @rx.var
+    def has_export_payload(self) -> bool:
+        return bool(self.export_payload)
 
     @rx.event
     async def join_lobby(self):
@@ -61,6 +68,10 @@ class GlobalLobbyState(rx.SharedState):
             }
         if not new_state._messages_by_room:
             new_state._messages_by_room = {}
+        if not new_state.export_payload:
+            new_state.export_payload = ""
+        if not new_state.import_payload:
+            new_state.import_payload = ""
 
     @rx.event
     async def create_room(self, room_name: str, description: str):
@@ -117,7 +128,13 @@ class GlobalLobbyState(rx.SharedState):
     async def clear_all_data(self):
         """Resets all shared state data to initial state."""
         auth = await self.get_state(AuthState)
-        if not auth.user or auth.user.is_guest:
+        # Lazy import to avoid circular dependency at module load time.
+        from relack.states.admin_state import AdminState  # noqa: WPS433
+
+        admin_state = await self.get_state(AdminState)
+        is_admin = bool(admin_state and admin_state.is_authenticated)
+
+        if not is_admin and (not auth.user or auth.user.is_guest):
             yield rx.toast("Admin privileges required.")
             return
         self._rooms = {
@@ -139,6 +156,64 @@ class GlobalLobbyState(rx.SharedState):
         yield RoomState.reset_room_state
         yield rx.toast("Database cleared successfully!")
         return
+
+    def _snapshot(self) -> dict[str, Any]:
+        """Return current lobby snapshot for export."""
+
+        return {
+            "rooms": [room.dict() for room in self._rooms.values()],
+            "profiles": [profile.dict() for profile in self._known_profiles.values()],
+            "messages_by_room": {
+                room: [msg.dict() for msg in msgs] for room, msgs in self._messages_by_room.items()
+            },
+        }
+
+    @rx.event
+    async def export_data(self):
+        """Serialize lobby data to JSON for admin download/copy."""
+
+        target = self
+        if not self._linked_to:
+            target = await self._link_to("global-lobby")
+        snapshot = target._snapshot()
+        target.export_payload = json.dumps(snapshot, indent=2)
+        return rx.toast("Export ready. Copy the JSON below.")
+
+    @rx.event
+    def set_import_payload(self, value: str):
+        self.import_payload = value
+
+    @rx.event
+    async def import_data(self, payload: str):
+        """Restore lobby data from JSON payload."""
+
+        try:
+            data = json.loads(payload)
+        except Exception:
+            yield rx.toast("Import failed: invalid JSON")
+            return
+
+        rooms_raw = data.get("rooms", [])
+        profiles_raw = data.get("profiles", [])
+        messages_raw = data.get("messages_by_room", {})
+
+        try:
+            self._rooms = {room["name"]: RoomInfo(**room) for room in rooms_raw}
+            self._known_profiles = {
+                profile["username"]: UserProfile(**profile) for profile in profiles_raw
+            }
+            reconstructed: dict[str, list[ChatMessage]] = {}
+            for room_name, msgs in messages_raw.items():
+                reconstructed[room_name] = [ChatMessage(**msg) for msg in msgs]
+            self._messages_by_room = reconstructed
+        except Exception:
+            yield rx.toast("Import failed: schema mismatch")
+            return
+
+        # Clear active room sessions; admins are not joined to rooms.
+        room_state = await self.get_state(RoomState)
+        yield RoomState.reset_room_state
+        yield rx.toast("Import completed.")
 
 
 class RoomState(rx.SharedState):

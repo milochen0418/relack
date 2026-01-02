@@ -137,6 +137,75 @@ def messages_table():
         class_name="space-y-4",
     )
 
+
+def settings_panel():
+    return rx.el.div(
+        rx.el.h2("Settings", class_name="text-xl font-bold text-gray-800 mb-4"),
+        rx.el.div(
+            rx.el.div(
+                rx.el.h3("Clear Data", class_name="font-semibold text-gray-800"),
+                rx.el.p(
+                    "Reset rooms, profiles, and message logs to defaults.",
+                    class_name="text-sm text-gray-500 mb-3",
+                ),
+                rx.el.button(
+                    "Clear Data",
+                    on_click=GlobalLobbyState.clear_all_data,
+                    class_name="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors shadow-sm",
+                ),
+                class_name="bg-white p-4 rounded-xl border border-gray-100 shadow-sm",
+            ),
+            rx.el.div(
+                rx.el.h3("Export Data", class_name="font-semibold text-gray-800"),
+                rx.el.p(
+                    "Generate a JSON snapshot of rooms, profiles, and messages.",
+                    class_name="text-sm text-gray-500 mb-3",
+                ),
+                rx.el.div(
+                    rx.el.button(
+                        "Export Data",
+                        on_click=GlobalLobbyState.export_data,
+                        class_name="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-medium transition-colors shadow-sm",
+                    ),
+                    class_name="mb-3",
+                ),
+                rx.text_area(
+                    value=GlobalLobbyState.export_payload,
+                    read_only=True,
+                    rows="10",
+                    class_name="w-full font-mono text-sm bg-gray-50 border border-gray-200 rounded-lg p-3",
+                    placeholder="Click Export Data to generate JSON",
+                ),
+                class_name="bg-white p-4 rounded-xl border border-gray-100 shadow-sm",
+            ),
+            rx.el.div(
+                rx.el.h3("Import Data", class_name="font-semibold text-gray-800"),
+                rx.el.p(
+                    "Paste a JSON snapshot to restore rooms, profiles, and messages.",
+                    class_name="text-sm text-gray-500 mb-3",
+                ),
+                rx.text_area(
+                    value=GlobalLobbyState.import_payload,
+                    on_change=GlobalLobbyState.set_import_payload,
+                    rows="10",
+                    class_name="w-full font-mono text-sm bg-white border border-gray-200 rounded-lg p-3",
+                    placeholder="Paste exported JSON here",
+                ),
+                rx.el.div(
+                    rx.el.button(
+                        "Import Data",
+                        on_click=lambda: GlobalLobbyState.import_data(GlobalLobbyState.import_payload),
+                        class_name="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors shadow-sm mt-3",
+                    ),
+                    class_name="flex justify-end",
+                ),
+                class_name="bg-white p-4 rounded-xl border border-gray-100 shadow-sm",
+            ),
+            class_name="grid gap-4",
+        ),
+        class_name="space-y-4",
+    )
+
 def admin_dashboard():
     return rx.el.div(
         rx.el.div(
@@ -154,6 +223,7 @@ def admin_dashboard():
                     rx.tabs.trigger("Users", value="users"),
                     rx.tabs.trigger("Rooms", value="rooms"),
                     rx.tabs.trigger("Messages", value="messages"),
+                    rx.tabs.trigger("Settings", value="settings"),
                 ),
                 rx.tabs.content(
                     users_table(),
@@ -168,6 +238,11 @@ def admin_dashboard():
                 rx.tabs.content(
                     messages_table(),
                     value="messages",
+                    class_name="mt-6",
+                ),
+                rx.tabs.content(
+                    settings_panel(),
+                    value="settings",
                     class_name="mt-6",
                 ),
                 default_value="users",
