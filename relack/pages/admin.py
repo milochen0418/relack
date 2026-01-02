@@ -1,6 +1,8 @@
 import reflex as rx
 from relack.states.admin_state import AdminState
 from relack.states.shared_state import GlobalLobbyState
+from relack.states.profile_state import ProfileState
+from relack.components.profile_views import profile_view
 from relack.components.navbar import navbar
 
 def login_panel():
@@ -48,6 +50,7 @@ def users_table():
                         rx.table.column_header_cell("Email"),
                         rx.table.column_header_cell("Is Guest"),
                         rx.table.column_header_cell("Created At"),
+                        rx.table.column_header_cell("More"),
                     )
                 ),
                 rx.table.body(
@@ -59,6 +62,15 @@ def users_table():
                             rx.table.cell(user.email),
                             rx.table.cell(rx.cond(user.is_guest, "True", "False")),
                             rx.table.cell(user.created_at),
+                            rx.table.cell(
+                                rx.button(
+                                    "More",
+                                    size="2",
+                                    variant="soft",
+                                    class_name="text-violet-700",
+                                    on_click=lambda _: ProfileState.open_admin_profile(user.username),
+                                )
+                            ),
                         ),
                     )
                 ),
@@ -66,6 +78,14 @@ def users_table():
                 width="100%",
             ),
             class_name="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden",
+        ),
+        rx.dialog.root(
+            rx.dialog.content(
+                profile_view(),
+                class_name="max-w-3xl w-[95vw] bg-transparent shadow-none border-0 p-0",  # profile_view has its own container
+            ),
+            open=ProfileState.is_admin_profile_modal_open,
+            on_open_change=ProfileState.close_admin_profile,
         ),
         class_name="space-y-4",
     )

@@ -11,6 +11,8 @@ class ProfileState(rx.State):
     is_editing: bool = False
     edited_nickname: str = ""
     edited_bio: str = ""
+    is_admin_profile_modal_open: bool = False
+    viewing_in_admin_modal: bool = False
 
     @rx.event
     async def get_profile(self):
@@ -42,6 +44,37 @@ class ProfileState(rx.State):
             self.edited_bio = self.current_profile.bio
             
         self.is_loading = False
+
+    @rx.event
+    async def load_profile_from_lobby(self, username: str):
+        """Load a profile by username for admin view without routing."""
+
+        self.is_loading = True
+        self.current_profile = None
+
+        if not username:
+            self.is_loading = False
+            return
+
+        lobby = await self.get_state(GlobalLobbyState)
+        lobby_linked = await lobby._link_to("global-lobby")
+        if username in lobby_linked._known_profiles:
+            self.current_profile = lobby_linked._known_profiles[username]
+            self.edited_nickname = self.current_profile.nickname
+            self.edited_bio = self.current_profile.bio
+
+        self.is_loading = False
+
+    @rx.event
+    async def open_admin_profile(self, username: str):
+        await self.load_profile_from_lobby(username)
+        self.viewing_in_admin_modal = bool(self.current_profile)
+        self.is_admin_profile_modal_open = bool(self.current_profile)
+
+    @rx.event
+    def close_admin_profile(self):
+        self.is_admin_profile_modal_open = False
+        self.viewing_in_admin_modal = False
 
     @rx.event
     def toggle_edit(self):

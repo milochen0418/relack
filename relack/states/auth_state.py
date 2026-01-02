@@ -89,14 +89,23 @@ class AuthState(GoogleAuthState):
                 yield rx.toast("Login failed: Email not found in token")
                 return
 
+            # Try to preserve existing profile fields (e.g., bio) from storage or lobby
+            existing_profile = self.user
+            from relack.states.shared_state import GlobalLobbyState
+            lobby_state = await self.get_state(GlobalLobbyState)
+            lobby_linked = await lobby_state._link_to("global-lobby")
+            if email in lobby_linked._known_profiles:
+                existing_profile = lobby_linked._known_profiles[email]
+
             profile = UserProfile(
                 username=email,
                 email=email,
-                nickname=id_info.get("name", email),
+                nickname=(existing_profile.nickname if existing_profile and existing_profile.nickname else id_info.get("name", email)),
                 is_guest=False,
-                avatar_seed=email,
-                created_at=datetime.datetime.now().isoformat(),
+                avatar_seed=(existing_profile.avatar_seed if existing_profile and existing_profile.avatar_seed else email),
+                created_at=(existing_profile.created_at if existing_profile and existing_profile.created_at else datetime.datetime.now().isoformat()),
                 token=id_info.get("sub", ""),
+                bio=(existing_profile.bio if existing_profile else ""),
             )
             self.user_profile_json = profile.model_dump_json()
             
