@@ -1,5 +1,6 @@
 import reflex as rx
 import json
+import datetime as dt
 from relack.models import RoomInfo, ChatMessage, UserProfile, ChatMessageLog
 from relack.states.auth_state import AuthState
 import datetime
@@ -180,6 +181,21 @@ class GlobalLobbyState(rx.SharedState):
         return rx.toast("Export ready. Copy the JSON below.")
 
     @rx.event
+    async def export_data_to_file(self):
+        """Trigger a file download of the current snapshot."""
+
+        target = self
+        if not self._linked_to:
+            target = await self._link_to("global-lobby")
+        snapshot = target._snapshot()
+        payload = json.dumps(snapshot, indent=2)
+        stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+        filename = f"relack-{stamp}.json"
+        # Set export_payload as well for UI visibility
+        target.export_payload = payload
+        return rx.download(data=payload, filename=filename)
+
+    @rx.event
     def set_import_payload(self, value: str):
         self.import_payload = value
 
@@ -214,6 +230,24 @@ class GlobalLobbyState(rx.SharedState):
         room_state = await self.get_state(RoomState)
         yield RoomState.reset_room_state
         yield rx.toast("Import completed.")
+
+    @rx.event
+    async def import_data_from_upload(self, files: list[rx.UploadFile]):
+        """Handle file upload (expects a single JSON file)."""
+
+        if not files:
+            yield rx.toast("No file provided.")
+            return
+        try:
+            content = await files[0].read()
+            payload = content.decode("utf-8")
+        except Exception:
+            yield rx.toast("Failed to read file.")
+            return
+
+        # Reuse import_data flow
+        async for action in self.import_data(payload):
+            yield action
 
 
 class RoomState(rx.SharedState):

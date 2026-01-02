@@ -167,7 +167,7 @@ def settings_panel():
                         on_click=GlobalLobbyState.export_data,
                         class_name="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-medium transition-colors shadow-sm",
                     ),
-                    class_name="mb-3",
+                    class_name="flex items-center gap-3 mb-3",
                 ),
                 rx.text_area(
                     value=GlobalLobbyState.export_payload,
@@ -175,6 +175,14 @@ def settings_panel():
                     rows="10",
                     class_name="w-full font-mono text-sm bg-gray-50 border border-gray-200 rounded-lg p-3",
                     placeholder="Click Export Data to generate JSON",
+                ),
+                rx.el.div(
+                    rx.button(
+                        "Copy",
+                        on_click=rx.set_clipboard(GlobalLobbyState.export_payload),
+                        class_name="px-3 py-2 bg-gray-800 hover:bg-black text-white rounded-lg text-sm font-medium",
+                    ),
+                    class_name="flex justify-end mt-2",
                 ),
                 class_name="bg-white p-4 rounded-xl border border-gray-100 shadow-sm",
             ),
@@ -198,6 +206,34 @@ def settings_panel():
                         class_name="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors shadow-sm mt-3",
                     ),
                     class_name="flex justify-end",
+                ),
+                class_name="bg-white p-4 rounded-xl border border-gray-100 shadow-sm",
+            ),
+            rx.el.div(
+                rx.el.h3("File Operations", class_name="font-semibold text-gray-800"),
+                rx.el.p(
+                    "Download a JSON snapshot or import from a JSON file.",
+                    class_name="text-sm text-gray-500 mb-3",
+                ),
+                rx.el.div(
+                    rx.button(
+                        "Export Data to File",
+                        on_click=GlobalLobbyState.export_data_to_file,
+                        class_name="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-medium transition-colors shadow-sm",
+                    ),
+                    class_name="mb-3",
+                ),
+                rx.el.div(
+                    rx.upload(
+                        rx.button(
+                            "Import Data from File",
+                            class_name="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors shadow-sm",
+                        ),
+                        accept="application/json",
+                        max_files=1,
+                        on_drop=GlobalLobbyState.import_data_from_upload,
+                    ),
+                    class_name="flex items-center gap-3",
                 ),
                 class_name="bg-white p-4 rounded-xl border border-gray-100 shadow-sm",
             ),
