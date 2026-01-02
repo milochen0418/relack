@@ -57,7 +57,7 @@ def users_table():
                             rx.table.cell(user.username),
                             rx.table.cell(user.nickname),
                             rx.table.cell(user.email),
-                            rx.table.cell(str(user.is_guest)),
+                            rx.table.cell(rx.cond(user.is_guest, "True", "False")),
                             rx.table.cell(user.created_at),
                         ),
                     )
