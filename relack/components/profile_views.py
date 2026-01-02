@@ -27,19 +27,19 @@ def profile_view() -> rx.Component:
             rx.cond(
                 user,
                 rx.el.div(
-                    rx.cond(
-                        ~ProfileState.is_editing,
-                        rx.el.a(
-                            rx.el.div(
-                                rx.icon("arrow-left", class_name="h-4 w-4"),
-                                rx.el.span("Exit Profile", class_name="ml-2 font-medium"),
-                                class_name="flex items-center text-gray-600 hover:text-violet-600 transition-colors",
-                            ),
-                            href="/",
-                            class_name="absolute top-4 left-4 z-10 bg-white/80 backdrop-blur px-4 py-2 rounded-full shadow-sm border border-gray-200 hover:shadow-md transition-all",
-                        ),
-                    ),
                     rx.el.div(
+                        rx.cond(
+                            ~ProfileState.is_editing,
+                            rx.el.a(
+                                rx.el.div(
+                                    rx.icon("arrow-left", class_name="h-4 w-4"),
+                                    rx.el.span("Exit Profile", class_name="ml-2 font-medium"),
+                                    class_name="flex items-center text-gray-600 hover:text-violet-600 transition-colors",
+                                ),
+                                href="/",
+                                class_name="absolute top-4 left-4 z-10 bg-white/80 backdrop-blur px-4 py-2 rounded-full shadow-sm border border-gray-200 hover:shadow-md transition-all",
+                            ),
+                        ),
                         rx.cond(
                             AuthState.user.username == user.username,
                             rx.el.button(
