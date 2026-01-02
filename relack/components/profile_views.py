@@ -16,15 +16,6 @@ from relack.states.profile_state import ProfileState
 def profile_view() -> rx.Component:
     user = ProfileState.current_profile
     return rx.el.div(
-        rx.el.a(
-            rx.el.div(
-                rx.icon("arrow-left", class_name="h-4 w-4"),
-                rx.el.span("Exit Profile", class_name="ml-2 font-medium"),
-                class_name="flex items-center text-gray-600 hover:text-violet-600 transition-colors",
-            ),
-            href="/",
-            class_name="fixed top-24 left-4 z-50 bg-white/80 backdrop-blur px-4 py-2 rounded-full shadow-sm border border-gray-200 hover:shadow-md transition-all",
-        ),
         rx.cond(
             ProfileState.is_loading,
             rx.el.div(
@@ -36,6 +27,18 @@ def profile_view() -> rx.Component:
             rx.cond(
                 user,
                 rx.el.div(
+                    rx.cond(
+                        ~ProfileState.is_editing,
+                        rx.el.a(
+                            rx.el.div(
+                                rx.icon("arrow-left", class_name="h-4 w-4"),
+                                rx.el.span("Exit Profile", class_name="ml-2 font-medium"),
+                                class_name="flex items-center text-gray-600 hover:text-violet-600 transition-colors",
+                            ),
+                            href="/",
+                            class_name="absolute top-4 left-4 z-10 bg-white/80 backdrop-blur px-4 py-2 rounded-full shadow-sm border border-gray-200 hover:shadow-md transition-all",
+                        ),
+                    ),
                     rx.el.div(
                         rx.cond(
                             AuthState.user.username == user.username,
@@ -138,7 +141,7 @@ def profile_view() -> rx.Component:
                         ),
                         class_name="px-8 pb-8",
                     ),
-                    class_name="bg-white rounded-2xl shadow-xl border border-gray-100 max-w-2xl mx-auto w-full animate-in fade-in zoom-in duration-300",
+                    class_name="bg-white rounded-2xl shadow-xl border border-gray-100 max-w-2xl mx-auto w-full animate-in fade-in zoom-in duration-300 relative",
                 ),
                 rx.el.div(
                     rx.icon("user-x", class_name="h-16 w-16 text-gray-300 mb-4"),
