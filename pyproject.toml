@@ -6,7 +6,7 @@ authors = ["Admin <admin@example.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = ">=3.11,<3.12"
 reflex = ">=0.8.23"
 faker = "*"
 python-dotenv = "^1.2.1"
