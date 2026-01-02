@@ -50,6 +50,23 @@ This project is managed with [Poetry](https://python-poetry.org/).
    poetry install
    ```
 
+### Environment variables (.env)
+
+Copy the template and fill in the values before running the app:
+
+```bash
+cp .env.template .env
+```
+
+Set these in `.env`:
+
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`
+   1) In Google Cloud Console, create OAuth 2.0 credentials → Web application.
+   2) Authorized JavaScript origins: add `http://localhost:3000` (plus your deploy domain later).
+   3) Authorized redirect URIs: add `http://localhost:3000/auth/google/callback` (plus your deploy domain later).
+   4) Paste the client ID/secret into `.env`. Wrong or missing values will raise "Invalid audience" during Google login. Reference: https://github.com/masenf/reflex-google-auth
+- `ADMIN_PASSCODE`: Any secret string you define. It unlocks the in-app admin dashboard (via the "Administrator Settings" link). Keep it private and change it for your environment.
+
 ### Running the App
 
 Start the development server (via Poetry env):
