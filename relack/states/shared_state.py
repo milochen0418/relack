@@ -1,5 +1,5 @@
 import reflex as rx
-from relack.models import RoomInfo, ChatMessage, UserProfile
+from relack.models import RoomInfo, ChatMessage, UserProfile, ChatMessageLog
 from relack.states.auth_state import AuthState
 import datetime
 import uuid
@@ -15,6 +15,7 @@ class GlobalLobbyState(rx.SharedState):
 
     _rooms: dict[str, RoomInfo] = {}
     _known_profiles: dict[str, UserProfile] = {}
+    _messages_by_room: dict[str, list[ChatMessage]] = {}
 
     @rx.var
     def room_list(self) -> list[RoomInfo]:
@@ -23,6 +24,17 @@ class GlobalLobbyState(rx.SharedState):
     @rx.var
     def all_profiles(self) -> list[UserProfile]:
         return list(self._known_profiles.values())
+
+    @rx.var
+    def recent_message_logs(self) -> list[ChatMessageLog]:
+        """Flatten recent messages for admin viewing (capped per room)."""
+
+        logs: list[ChatMessageLog] = []
+        for room_name, messages in self._messages_by_room.items():
+            for msg in messages:
+                logs.append(ChatMessageLog(room_name=room_name, message=msg))
+        # Keep the most recent 200 entries overall to avoid huge tables
+        return logs[-200:]
 
     @rx.event
     async def join_lobby(self):
@@ -47,6 +59,8 @@ class GlobalLobbyState(rx.SharedState):
                     name="Random", description="Anything goes!", participant_count=0
                 ),
             }
+        if not new_state._messages_by_room:
+            new_state._messages_by_room = {}
 
     @rx.event
     async def create_room(self, room_name: str, description: str):
@@ -78,6 +92,20 @@ class GlobalLobbyState(rx.SharedState):
         del self._rooms[room_name]
         return rx.toast(f"Room '{room_name}' deleted.")
 
+    @rx.event
+    async def record_message(self, room_name: str, message: ChatMessage):
+        """Store a message snapshot for admin view; keeps last 200 per room."""
+
+        target = self
+        if not self._linked_to:
+            target = await self._link_to("global-lobby")
+
+        room_msgs = target._messages_by_room.setdefault(room_name, [])
+        room_msgs.append(message)
+        # Cap per-room history to avoid unbounded growth
+        if len(room_msgs) > 200:
+            room_msgs[:] = room_msgs[-200:]
+
     def _update_participant_count(self, room_name: str, delta: int):
         """Helper to update participant counts. Must be called on a linked state."""
         if room_name in self._rooms:
@@ -106,6 +134,7 @@ class GlobalLobbyState(rx.SharedState):
             ),
         }
         self._known_profiles = {}
+        self._messages_by_room = {}
         room_state = await self.get_state(RoomState)
         yield RoomState.reset_room_state
         yield rx.toast("Database cleared successfully!")
@@ -204,8 +233,10 @@ class RoomState(rx.SharedState):
                 is_system=True,
             )
             new_room_state._messages.append(creator_msg)
+            await lobby.record_message(room_name, creator_msg)
         if lobby._linked_to == "global-lobby":
             lobby._update_participant_count(room_name, 1)
+        await lobby.record_message(room_name, join_msg)
 
     @rx.event
     async def handle_leave_room(self):
@@ -221,18 +252,19 @@ class RoomState(rx.SharedState):
             is_system=True,
         )
         self._messages.append(leave_msg)
+        lobby = await self.get_state(GlobalLobbyState)
+        await lobby.record_message(self._room_name, leave_msg)
         if client_token in self._active_users:
             del self._active_users[client_token]
         if client_token in self._active_user_profiles:
             del self._active_user_profiles[client_token]
-        lobby = await self.get_state(GlobalLobbyState)
         if lobby._linked_to == "global-lobby":
             lobby._update_participant_count(self._room_name, -1)
         await self._unlink()
         self._room_name = ""
 
     @rx.event
-    def send_message(self, form_data: dict[str, Any]):
+    async def send_message(self, form_data: dict[str, Any]):
         message_text = form_data.get("message", "").strip()
         if not message_text:
             return
@@ -246,4 +278,6 @@ class RoomState(rx.SharedState):
             is_system=False,
         )
         self._messages.append(msg)
+        lobby = await self.get_state(GlobalLobbyState)
+        await lobby.record_message(self._room_name, msg)
         self.current_message = ""

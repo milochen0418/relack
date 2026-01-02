@@ -102,6 +102,41 @@ def rooms_table():
         class_name="space-y-4",
     )
 
+
+def messages_table():
+    return rx.el.div(
+        rx.el.h2("Recent Messages", class_name="text-xl font-bold text-gray-800 mb-4"),
+        rx.el.div(
+            rx.table.root(
+                rx.table.header(
+                    rx.table.row(
+                        rx.table.column_header_cell("Room"),
+                        rx.table.column_header_cell("Sender"),
+                        rx.table.column_header_cell("Content"),
+                        rx.table.column_header_cell("Time"),
+                        rx.table.column_header_cell("Type"),
+                    )
+                ),
+                rx.table.body(
+                    rx.foreach(
+                        GlobalLobbyState.recent_message_logs,
+                        lambda log: rx.table.row(
+                            rx.table.cell(log.room_name),
+                            rx.table.cell(log.message.sender),
+                            rx.table.cell(log.message.content),
+                            rx.table.cell(log.message.timestamp),
+                            rx.table.cell(rx.cond(log.message.is_system, "System", "User")),
+                        ),
+                    )
+                ),
+                variant="surface",
+                width="100%",
+            ),
+            class_name="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden",
+        ),
+        class_name="space-y-4",
+    )
+
 def admin_dashboard():
     return rx.el.div(
         rx.el.div(
@@ -118,6 +153,7 @@ def admin_dashboard():
                 rx.tabs.list(
                     rx.tabs.trigger("Users", value="users"),
                     rx.tabs.trigger("Rooms", value="rooms"),
+                    rx.tabs.trigger("Messages", value="messages"),
                 ),
                 rx.tabs.content(
                     users_table(),
@@ -127,6 +163,11 @@ def admin_dashboard():
                 rx.tabs.content(
                     rooms_table(),
                     value="rooms",
+                    class_name="mt-6",
+                ),
+                rx.tabs.content(
+                    messages_table(),
+                    value="messages",
                     class_name="mt-6",
                 ),
                 default_value="users",

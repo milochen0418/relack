@@ -23,6 +23,13 @@ class ChatMessage(BaseModel):
     is_system: bool = False
 
 
+class ChatMessageLog(BaseModel):
+    """Wraps a chat message with its room origin for admin viewing."""
+
+    room_name: str
+    message: ChatMessage
+
+
 class RoomInfo(BaseModel):
     name: str
     participant_count: int = 0
