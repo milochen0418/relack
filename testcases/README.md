@@ -13,19 +13,19 @@ We provide a helper script `run_test_suite.sh` in the project root to automate t
 
 ### Usage
 
-Run the default test suite (guest_login):
+Run the default test suite (guest_login) via Poetry env:
 ```bash
-./run_test_suite.sh
+poetry run ./run_test_suite.sh
 ```
 
 Run a specific test suite:
 ```bash
-./run_test_suite.sh <suite_name>
+poetry run ./run_test_suite.sh <suite_name>
 ```
 
 Example:
 ```bash
-./run_test_suite.sh guest_login
+poetry run ./run_test_suite.sh guest_login
 ```
 
 ## Adding a New Test Case
@@ -85,7 +85,7 @@ To add a new test suite, follow these steps:
 
 4.  **Run Your Test**:
     ```bash
-    ./run_test_suite.sh my_feature
+    poetry run ./run_test_suite.sh my_feature
     ```
 
 ## Test Artifacts

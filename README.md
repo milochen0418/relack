@@ -52,7 +52,7 @@ This project is managed with [Poetry](https://python-poetry.org/).
 
 ### Running the App
 
-Start the development server:
+Start the development server (via Poetry env):
 
 ```bash
 poetry run reflex run
