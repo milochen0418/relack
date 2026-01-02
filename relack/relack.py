@@ -1,6 +1,7 @@
 import reflex as rx
 from relack.pages.index import index
 from relack.pages.profile import profile
+from relack.pages.admin import admin_page
 
 app = rx.App(
     theme=rx.theme(appearance="light"),
@@ -14,3 +15,4 @@ app = rx.App(
 )
 app.add_page(index, route="/", title="Relack - Reflex Real-Time Chat")
 app.add_page(profile, route="/profile/[username]", title="User Profile")
+app.add_page(admin_page, route="/admin-dashboard", title="Admin Dashboard")

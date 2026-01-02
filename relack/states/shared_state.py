@@ -20,6 +20,10 @@ class GlobalLobbyState(rx.SharedState):
     def room_list(self) -> list[RoomInfo]:
         return list(self._rooms.values())
 
+    @rx.var
+    def all_profiles(self) -> list[UserProfile]:
+        return list(self._known_profiles.values())
+
     @rx.event
     async def join_lobby(self):
         """Connects the user to the global lobby to receive room updates."""

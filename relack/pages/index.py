@@ -31,7 +31,19 @@ def index() -> rx.Component:
             rx.el.div(
                 navbar(),
                 rx.cond(AuthState.user, chat_dashboard(), welcome_hero()),
-                class_name="min-h-screen bg-gray-50/50 font-sans",
+                rx.cond(
+                    AuthState.user,
+                    rx.fragment(),
+                    rx.el.div(
+                        rx.el.a(
+                            "Admin",
+                            href="/admin-dashboard",
+                            class_name="text-xs font-medium text-gray-600 hover:text-violet-600 transition-colors",
+                        ),
+                        class_name="fixed bottom-4 right-4 z-50 bg-white/80 backdrop-blur px-3 py-1.5 rounded-full shadow-sm border border-gray-200",
+                    ),
+                ),
+                class_name="min-h-screen bg-gray-50/50 font-sans relative",
                 on_mount=[GlobalLobbyState.join_lobby],
             )
         )
