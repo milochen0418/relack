@@ -34,7 +34,7 @@ This project is managed with [Poetry](https://python-poetry.org/).
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.11.x
 - Poetry
 
 ### Installation
@@ -59,3 +59,28 @@ poetry run reflex run
 ```
 
 The application will be available at `http://localhost:3000`.
+
+### Python version help (common first-run issue)
+
+If you see an error like `Current Python version (3.x) is not allowed by the project (>=3.11,<3.12)`, point Poetry at a 3.11 interpreter and retry:
+
+macOS (Homebrew Python 3.11):
+
+```bash
+brew install python@3.11
+poetry env use /opt/homebrew/bin/python3.11
+poetry install
+```
+
+If you already have `python3.11` on your PATH (e.g., from Xcode CLT or an existing install), you can simply run:
+
+```bash
+poetry env use python3.11
+poetry install
+```
+
+After switching, rerun the server:
+
+```bash
+poetry run reflex run
+```
