@@ -99,6 +99,11 @@ class AuthState(GoogleAuthState):
                 token=id_info.get("sub", ""),
             )
             self.user_profile_json = profile.model_dump_json()
+            
+            # Notify lobby about the new user
+            from relack.states.shared_state import GlobalLobbyState
+            yield GlobalLobbyState.join_lobby
+            
             yield rx.toast(f"Welcome, {profile.nickname}!")
 
         except ValueError as e:
@@ -120,6 +125,11 @@ class AuthState(GoogleAuthState):
             token=f"guest_{''.join(random.choices(string.ascii_letters, k=8))}",
         )
         self.user_profile_json = profile.model_dump_json()
+        
+        # Notify lobby about the new user
+        from relack.states.shared_state import GlobalLobbyState
+        yield GlobalLobbyState.join_lobby
+        
         return rx.toast(f"Welcome, {profile.username}!")
 
     @rx.event
