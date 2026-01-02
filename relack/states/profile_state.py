@@ -15,7 +15,9 @@ class ProfileState(rx.State):
     @rx.event
     async def get_profile(self):
         self.is_loading = True
-        username = self.router.page.params.get("username")
+        # RouterData.page is deprecated; use RouterData.url and parse the path for the username
+        path_parts = (self.router.url.path or "").strip("/").split("/")
+        username = path_parts[-1] if len(path_parts) >= 2 else ""
         if not username:
             self.is_loading = False
             return

@@ -26,7 +26,7 @@ def navbar() -> rx.Component:
                     rx.icon("link", class_name="h-4 w-4"),
                     rx.el.span("Copy Link", class_name="text-sm font-medium ml-2"),
                     on_click=[
-                        rx.set_clipboard(AuthState.router.page.full_path),
+                        rx.set_clipboard(AuthState.router.url),
                         rx.toast("Link copied to clipboard!", duration=3000),
                     ],
                     class_name="flex items-center px-4 py-2 mr-4 text-gray-500 hover:text-violet-600 hover:bg-violet-50 rounded-xl transition-all active:scale-95 border border-transparent hover:border-violet-100",

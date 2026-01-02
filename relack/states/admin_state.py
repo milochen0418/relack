@@ -6,6 +6,11 @@ class AdminState(rx.State):
     passcode_input: str = ""
     is_authenticated: bool = False
 
+    @rx.event
+    def set_passcode_input(self, value: str):
+        # Explicit setter to avoid relying on deprecated state_auto_setters
+        self.passcode_input = value
+
     async def check_passcode(self):
         expected = os.getenv("ADMIN_PASSCODE")
         if self.passcode_input == expected:
