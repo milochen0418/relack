@@ -284,8 +284,8 @@ def data_maintenance_card():
         ),
         class_name=rx.cond(
             AdminState.active_settings_anchor == "data-maintenance",
-            "bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-2 ring-2 ring-violet-300",
-            "bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-2",
+            "bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-2 ring-2 ring-violet-300 scroll-mt-28",
+            "bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-2 scroll-mt-28",
         ),
         id="data-maintenance",
     )
@@ -412,8 +412,8 @@ def permissions_card():
         ),
         class_name=rx.cond(
             AdminState.active_settings_anchor == "permissions",
-            "bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-2 ring-2 ring-violet-300",
-            "bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-2",
+            "bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-2 ring-2 ring-violet-300 scroll-mt-28",
+            "bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-2 scroll-mt-28",
         ),
         id="permissions",
     )
