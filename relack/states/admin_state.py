@@ -7,16 +7,23 @@ class AdminState(rx.State):
     is_authenticated: bool = False
     is_settings_menu_open: bool = False
     active_settings_anchor: str = "data-maintenance"
+    active_tab: str = "users"
 
     @rx.event
     def set_passcode_input(self, value: str):
         # Explicit setter to avoid relying on deprecated state_auto_setters
         self.passcode_input = value
 
+    @rx.event
+    def set_active_tab(self, value: str):
+        self.active_tab = value
+
     async def check_passcode(self):
         expected = os.getenv("ADMIN_PASSCODE")
         if self.passcode_input == expected:
             self.is_authenticated = True
+            # Reset tab to first tab after successful login
+            self.active_tab = "users"
             # Ensure we are connected to the lobby to see data
             lobby = await self.get_state(GlobalLobbyState)
             await lobby.join_lobby()
@@ -27,6 +34,7 @@ class AdminState(rx.State):
     def logout(self):
         self.is_authenticated = False
         self.passcode_input = ""
+        self.active_tab = "users"
 
     @rx.event
     def toggle_settings_menu(self):

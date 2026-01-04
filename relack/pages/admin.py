@@ -19,20 +19,24 @@ def login_panel():
         ),
         rx.el.div(
             rx.el.h1("Admin Login", class_name="text-2xl font-bold text-gray-900 mb-6 text-center"),
-            rx.el.div(
-                rx.el.input(
-                    placeholder="Enter Admin Passcode",
-                    type="password",
-                    value=AdminState.passcode_input,
-                    on_change=AdminState.set_passcode_input,
-                    class_name="w-full px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all bg-gray-50 focus:bg-white",
+            rx.el.form(
+                rx.el.div(
+                    rx.el.input(
+                        placeholder="Enter Admin Passcode",
+                        type="password",
+                        value=AdminState.passcode_input,
+                        on_change=AdminState.set_passcode_input,
+                        auto_focus=True,
+                        class_name="w-full px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all bg-gray-50 focus:bg-white",
+                    ),
+                    class_name="mb-4",
                 ),
-                class_name="mb-4",
-            ),
-            rx.el.button(
-                "Login",
-                on_click=AdminState.check_passcode,
-                class_name="w-full bg-violet-600 hover:bg-violet-700 text-white font-semibold py-2 px-4 rounded-xl transition-colors shadow-sm hover:shadow-md",
+                rx.el.button(
+                    "Login",
+                    type="submit",
+                    class_name="w-full bg-violet-600 hover:bg-violet-700 text-white font-semibold py-2 px-4 rounded-xl transition-colors shadow-sm hover:shadow-md",
+                ),
+                on_submit=AdminState.check_passcode,
             ),
             class_name="bg-white p-8 rounded-2xl shadow-xl border border-gray-100 w-full max-w-md",
         ),
@@ -503,6 +507,8 @@ def admin_dashboard():
                     value="settings",
                     class_name="mt-6",
                 ),
+                value=AdminState.active_tab,
+                on_change=AdminState.set_active_tab,
                 default_value="users",
                 width="100%",
             ),
