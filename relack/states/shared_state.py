@@ -1,7 +1,8 @@
 import reflex as rx
 import json
 import datetime as dt
-from relack.models import RoomInfo, ChatMessage, UserProfile, ChatMessageLog
+from relack.models import RoomInfo, ChatMessage, UserProfile, ChatMessageLog, PermissionConfig
+from relack.states.permission_state import PermissionState
 from relack.states.auth_state import AuthState
 import datetime
 import uuid
@@ -18,6 +19,7 @@ class GlobalLobbyState(rx.SharedState):
     _rooms: dict[str, RoomInfo] = {}
     _known_profiles: dict[str, UserProfile] = {}
     _messages_by_room: dict[str, list[ChatMessage]] = {}
+    _permissions: PermissionConfig = PermissionConfig()
     export_payload: str = ""
     import_payload: str = ""
 
@@ -69,6 +71,8 @@ class GlobalLobbyState(rx.SharedState):
             }
         if not new_state._messages_by_room:
             new_state._messages_by_room = {}
+        if not new_state._permissions:
+            new_state._permissions = PermissionConfig()
         if not new_state.export_payload:
             new_state.export_payload = ""
         if not new_state.import_payload:
@@ -153,6 +157,7 @@ class GlobalLobbyState(rx.SharedState):
         }
         self._known_profiles = {}
         self._messages_by_room = {}
+        self._permissions = PermissionConfig()
         room_state = await self.get_state(RoomState)
         yield RoomState.reset_room_state
         yield rx.toast("Database cleared successfully!")
@@ -167,6 +172,7 @@ class GlobalLobbyState(rx.SharedState):
             "messages_by_room": {
                 room: [msg.dict() for msg in msgs] for room, msgs in self._messages_by_room.items()
             },
+            "permissions": self._permissions.dict(),
         }
 
     @rx.event
@@ -212,6 +218,7 @@ class GlobalLobbyState(rx.SharedState):
         rooms_raw = data.get("rooms", [])
         profiles_raw = data.get("profiles", [])
         messages_raw = data.get("messages_by_room", {})
+        permissions_raw = data.get("permissions")
 
         try:
             self._rooms = {room["name"]: RoomInfo(**room) for room in rooms_raw}
@@ -222,6 +229,10 @@ class GlobalLobbyState(rx.SharedState):
             for room_name, msgs in messages_raw.items():
                 reconstructed[room_name] = [ChatMessage(**msg) for msg in msgs]
             self._messages_by_room = reconstructed
+            if permissions_raw:
+                self._permissions = PermissionConfig(**permissions_raw)
+            else:
+                self._permissions = PermissionConfig()
         except Exception:
             yield rx.toast("Import failed: schema mismatch")
             return
@@ -229,6 +240,9 @@ class GlobalLobbyState(rx.SharedState):
         # Clear active room sessions; admins are not joined to rooms.
         room_state = await self.get_state(RoomState)
         yield RoomState.reset_room_state
+        # Sync permission UI to imported snapshot
+        permission_state = await self.get_state(PermissionState)
+        await permission_state.sync_from_lobby()
         yield rx.toast("Import completed.")
 
     @rx.event
@@ -315,6 +329,15 @@ class RoomState(rx.SharedState):
         safe_token = f"room-{room_name.replace(' ', '-').replace('_', '-').lower()}"
         new_room_state = await self._link_to(safe_token)
         new_room_state._room_name = room_name
+        # Load existing history for this room from lobby snapshot (if any)
+        lobby = await self.get_state(GlobalLobbyState)
+        if not lobby._linked_to:
+            lobby_linked = await lobby._link_to("global-lobby")
+        else:
+            lobby_linked = lobby
+        prior_msgs = lobby_linked._messages_by_room.get(room_name, [])
+        new_room_state._messages = list(prior_msgs)
+
         username = auth.user.username
         client_token = self.router.session.client_token
         new_room_state._active_users[client_token] = username
@@ -327,11 +350,6 @@ class RoomState(rx.SharedState):
             is_system=True,
         )
         new_room_state._messages.append(join_msg)
-        lobby = await self.get_state(GlobalLobbyState)
-        if not lobby._linked_to:
-            lobby_linked = await lobby._link_to("global-lobby")
-        else:
-            lobby_linked = lobby
         room_info = lobby_linked._rooms.get(room_name)
         if room_info and room_info.created_by != "System":
             creator_msg = ChatMessage(

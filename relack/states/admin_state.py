@@ -1,6 +1,7 @@
 import reflex as rx
 import os
 from relack.states.shared_state import GlobalLobbyState
+from relack.states.permission_state import PermissionState
 
 class AdminState(rx.State):
     passcode_input: str = ""
@@ -27,6 +28,9 @@ class AdminState(rx.State):
             # Ensure we are connected to the lobby to see data
             lobby = await self.get_state(GlobalLobbyState)
             await lobby.join_lobby()
+            # Sync permissions UI from shared snapshot
+            permission_state = await self.get_state(PermissionState)
+            await permission_state.sync_from_lobby()
             return rx.toast("Admin access granted.")
         else:
             return rx.toast("Invalid Passcode")

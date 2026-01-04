@@ -35,3 +35,16 @@ class RoomInfo(BaseModel):
     participant_count: int = 0
     description: str = ""
     created_by: str = "System"
+
+
+class PermissionConfig(BaseModel):
+    """Snapshot of admin permissions toggles for backup/restore."""
+
+    google_requires_approval: bool = True
+    guest_requires_approval: bool = True
+    guest_can_create_room: bool = False
+    guest_can_mention_users: bool = False
+    guest_can_view_profiles: bool = False
+    google_can_create_room: bool = False
+    google_can_mention_users: bool = False
+    google_can_view_profiles: bool = False
