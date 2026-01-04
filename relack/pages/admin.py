@@ -2,6 +2,7 @@ import reflex as rx
 from relack.states.admin_state import AdminState
 from relack.states.shared_state import GlobalLobbyState
 from relack.states.profile_state import ProfileState
+from relack.states.permission_state import PermissionState
 from relack.components.profile_views import profile_view
 from relack.components.navbar import navbar
 
@@ -158,106 +159,270 @@ def messages_table():
     )
 
 
+def data_maintenance_card():
+    return rx.el.div(
+        rx.el.div(
+            rx.el.div(
+                rx.el.h3("Data Maintenance", class_name="text-lg font-semibold text-gray-900"),
+                rx.el.p(
+                    "Import, export, and clear data in one place.",
+                    class_name="text-sm text-gray-500",
+                ),
+                class_name="space-y-1",
+            ),
+            class_name="flex items-start justify-between",
+        ),
+        rx.el.div(
+            rx.el.div(
+                rx.el.div(
+                    rx.el.h4("Clear Data", class_name="font-semibold text-gray-800"),
+                    rx.el.p(
+                        "Reset rooms, profiles, and message logs to defaults.",
+                        class_name="text-sm text-gray-500",
+                    ),
+                    rx.el.button(
+                        "Clear Data",
+                        on_click=GlobalLobbyState.clear_all_data,
+                        class_name="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors shadow-sm w-fit",
+                    ),
+                    class_name="space-y-3",
+                ),
+                class_name="py-4",
+            ),
+            rx.el.div(
+                rx.el.div(
+                    rx.el.h4("Export Data", class_name="font-semibold text-gray-800"),
+                    rx.el.p(
+                        "Generate a JSON snapshot of rooms, profiles, and messages.",
+                        class_name="text-sm text-gray-500",
+                    ),
+                    rx.el.div(
+                        rx.el.button(
+                            "Export Data",
+                            on_click=GlobalLobbyState.export_data,
+                            class_name="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-medium transition-colors shadow-sm",
+                        ),
+                        class_name="flex items-center gap-3",
+                    ),
+                    rx.text_area(
+                        value=GlobalLobbyState.export_payload,
+                        read_only=True,
+                        rows="8",
+                        class_name="w-full font-mono text-sm bg-gray-50 border border-gray-200 rounded-lg p-3",
+                        placeholder="Click Export Data to generate JSON",
+                    ),
+                    rx.el.div(
+                        rx.button(
+                            "Copy",
+                            on_click=rx.set_clipboard(GlobalLobbyState.export_payload),
+                            class_name="px-3 py-2 bg-gray-800 hover:bg-black text-white rounded-lg text-sm font-medium",
+                        ),
+                        class_name="flex justify-end",
+                    ),
+                    class_name="space-y-3",
+                ),
+                class_name="py-4 border-t border-gray-100",
+            ),
+            rx.el.div(
+                rx.el.div(
+                    rx.el.h4("Import Data", class_name="font-semibold text-gray-800"),
+                    rx.el.p(
+                        "Paste a JSON snapshot to restore rooms, profiles, and messages.",
+                        class_name="text-sm text-gray-500",
+                    ),
+                    rx.text_area(
+                        value=GlobalLobbyState.import_payload,
+                        on_change=GlobalLobbyState.set_import_payload,
+                        rows="8",
+                        class_name="w-full font-mono text-sm bg-white border border-gray-200 rounded-lg p-3",
+                        placeholder="Paste exported JSON here",
+                    ),
+                    rx.el.div(
+                        rx.el.button(
+                            "Import Data",
+                            on_click=lambda: GlobalLobbyState.import_data(GlobalLobbyState.import_payload),
+                            class_name="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors shadow-sm",
+                        ),
+                        class_name="flex justify-end",
+                    ),
+                    class_name="space-y-3",
+                ),
+                class_name="py-4 border-t border-gray-100",
+            ),
+            rx.el.div(
+                rx.el.div(
+                    rx.el.h4("File Operations", class_name="font-semibold text-gray-800"),
+                    rx.el.p(
+                        "Download a JSON snapshot or import from a JSON file.",
+                        class_name="text-sm text-gray-500",
+                    ),
+                    rx.el.div(
+                        rx.button(
+                            "Export Data to File",
+                            on_click=GlobalLobbyState.export_data_to_file,
+                            class_name="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-medium transition-colors shadow-sm",
+                        ),
+                        class_name="mb-3",
+                    ),
+                    rx.el.div(
+                        rx.upload(
+                            rx.button(
+                                "Import Data from File",
+                                class_name="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors shadow-sm",
+                            ),
+                            accept="application/json",
+                            max_files=1,
+                            on_drop=GlobalLobbyState.import_data_from_upload,
+                        ),
+                        class_name="flex items-center gap-3",
+                    ),
+                    class_name="space-y-3",
+                ),
+                class_name="py-4 border-t border-gray-100",
+            ),
+            class_name="space-y-0",
+        ),
+        class_name=rx.cond(
+            AdminState.active_settings_anchor == "data-maintenance",
+            "bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-2 ring-2 ring-violet-300",
+            "bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-2",
+        ),
+        id="data-maintenance",
+    )
+
+
+def permission_toggle(label: str, description: str, checked, on_change):
+    return rx.el.div(
+        rx.el.div(
+            rx.el.div(
+                rx.el.span(label, class_name="text-sm font-medium text-gray-900"),
+                rx.el.p(description, class_name="text-xs text-gray-500"),
+                class_name="flex-1 space-y-1",
+            ),
+            rx.switch(
+                checked=checked,
+                on_change=on_change,
+                class_name="data-[state=checked]:bg-violet-600",
+            ),
+            class_name="flex items-center justify-between gap-3",
+        ),
+        class_name="py-2",
+    )
+
+
+def permissions_card():
+    return rx.el.div(
+        rx.el.div(
+            rx.el.h3("Permissions", class_name="text-lg font-semibold text-gray-900"),
+            rx.el.p(
+                "Define guest defaults and guardrails. (UI only for now)",
+                class_name="text-sm text-gray-500",
+            ),
+            class_name="space-y-1",
+        ),
+        rx.el.div(
+            rx.el.div(
+                rx.el.div(
+                    rx.el.span("Roles", class_name="text-sm font-semibold text-gray-800"),
+                    rx.el.p(
+                        "Currently editing guest defaults. Extend for more roles later.",
+                        class_name="text-xs text-gray-500",
+                    ),
+                    class_name="space-y-1",
+                ),
+                class_name="py-3",
+            ),
+            rx.el.div(
+                rx.el.span("Registration Flow", class_name="text-xs font-semibold text-gray-500 uppercase tracking-wide"),
+                permission_toggle(
+                    "Google login requires admin approval",
+                    "If off, Google users become registered immediately after login.",
+                    PermissionState.google_requires_approval,
+                    PermissionState.set_google_requires_approval,
+                ),
+                permission_toggle(
+                    "Guest login requires admin approval",
+                    "If off, guest users are auto-upgraded to registered on entry.",
+                    PermissionState.guest_requires_approval,
+                    PermissionState.set_guest_requires_approval,
+                ),
+                class_name="py-3 space-y-2",
+            ),
+            rx.el.div(
+                rx.el.span("Guest Initial Permissions", class_name="text-xs font-semibold text-gray-500 uppercase tracking-wide"),
+                permission_toggle(
+                    "Can create rooms",
+                    "Allow guests to create new rooms.",
+                    PermissionState.guest_can_create_room,
+                    PermissionState.set_guest_can_create_room,
+                ),
+                permission_toggle(
+                    "Can @mention others",
+                    "Let guests tag others inside rooms.",
+                    PermissionState.guest_can_mention_users,
+                    PermissionState.set_guest_can_mention_users,
+                ),
+                permission_toggle(
+                    "Can view profiles",
+                    "Allow guests to open other users' profiles.",
+                    PermissionState.guest_can_view_profiles,
+                    PermissionState.set_guest_can_view_profiles,
+                ),
+                class_name="py-3 space-y-2",
+            ),
+            rx.el.div(
+                rx.el.span("Google Initial Permissions", class_name="text-xs font-semibold text-gray-500 uppercase tracking-wide"),
+                permission_toggle(
+                    "Can create rooms",
+                    "Allow Google users to create new rooms.",
+                    PermissionState.google_can_create_room,
+                    PermissionState.set_google_can_create_room,
+                ),
+                permission_toggle(
+                    "Can @mention others",
+                    "Let Google users tag others inside rooms.",
+                    PermissionState.google_can_mention_users,
+                    PermissionState.set_google_can_mention_users,
+                ),
+                permission_toggle(
+                    "Can view profiles",
+                    "Allow Google users to open other users' profiles.",
+                    PermissionState.google_can_view_profiles,
+                    PermissionState.set_google_can_view_profiles,
+                ),
+                class_name="py-3 space-y-2",
+            ),
+            rx.el.div(
+                rx.el.button(
+                    "Save changes",
+                    on_click=PermissionState.save_permissions,
+                    class_name="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-semibold transition-colors shadow-sm",
+                ),
+                rx.el.button(
+                    "Reset",
+                    on_click=PermissionState.reset_permissions,
+                    class_name="px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-lg border border-gray-200",
+                ),
+                class_name="flex items-center gap-3 pt-3",
+            ),
+            class_name="space-y-3",
+        ),
+        class_name=rx.cond(
+            AdminState.active_settings_anchor == "permissions",
+            "bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-2 ring-2 ring-violet-300",
+            "bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-2",
+        ),
+        id="permissions",
+    )
+
+
 def settings_panel():
     return rx.el.div(
         rx.el.h2("Settings", class_name="text-xl font-bold text-gray-800 mb-4"),
         rx.el.div(
-            rx.el.div(
-                rx.el.h3("Clear Data", class_name="font-semibold text-gray-800"),
-                rx.el.p(
-                    "Reset rooms, profiles, and message logs to defaults.",
-                    class_name="text-sm text-gray-500 mb-3",
-                ),
-                rx.el.button(
-                    "Clear Data",
-                    on_click=GlobalLobbyState.clear_all_data,
-                    class_name="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors shadow-sm",
-                ),
-                class_name="bg-white p-4 rounded-xl border border-gray-100 shadow-sm",
-            ),
-            rx.el.div(
-                rx.el.h3("Export Data", class_name="font-semibold text-gray-800"),
-                rx.el.p(
-                    "Generate a JSON snapshot of rooms, profiles, and messages.",
-                    class_name="text-sm text-gray-500 mb-3",
-                ),
-                rx.el.div(
-                    rx.el.button(
-                        "Export Data",
-                        on_click=GlobalLobbyState.export_data,
-                        class_name="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-medium transition-colors shadow-sm",
-                    ),
-                    class_name="flex items-center gap-3 mb-3",
-                ),
-                rx.text_area(
-                    value=GlobalLobbyState.export_payload,
-                    read_only=True,
-                    rows="10",
-                    class_name="w-full font-mono text-sm bg-gray-50 border border-gray-200 rounded-lg p-3",
-                    placeholder="Click Export Data to generate JSON",
-                ),
-                rx.el.div(
-                    rx.button(
-                        "Copy",
-                        on_click=rx.set_clipboard(GlobalLobbyState.export_payload),
-                        class_name="px-3 py-2 bg-gray-800 hover:bg-black text-white rounded-lg text-sm font-medium",
-                    ),
-                    class_name="flex justify-end mt-2",
-                ),
-                class_name="bg-white p-4 rounded-xl border border-gray-100 shadow-sm",
-            ),
-            rx.el.div(
-                rx.el.h3("Import Data", class_name="font-semibold text-gray-800"),
-                rx.el.p(
-                    "Paste a JSON snapshot to restore rooms, profiles, and messages.",
-                    class_name="text-sm text-gray-500 mb-3",
-                ),
-                rx.text_area(
-                    value=GlobalLobbyState.import_payload,
-                    on_change=GlobalLobbyState.set_import_payload,
-                    rows="10",
-                    class_name="w-full font-mono text-sm bg-white border border-gray-200 rounded-lg p-3",
-                    placeholder="Paste exported JSON here",
-                ),
-                rx.el.div(
-                    rx.el.button(
-                        "Import Data",
-                        on_click=lambda: GlobalLobbyState.import_data(GlobalLobbyState.import_payload),
-                        class_name="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors shadow-sm mt-3",
-                    ),
-                    class_name="flex justify-end",
-                ),
-                class_name="bg-white p-4 rounded-xl border border-gray-100 shadow-sm",
-            ),
-            rx.el.div(
-                rx.el.h3("File Operations", class_name="font-semibold text-gray-800"),
-                rx.el.p(
-                    "Download a JSON snapshot or import from a JSON file.",
-                    class_name="text-sm text-gray-500 mb-3",
-                ),
-                rx.el.div(
-                    rx.button(
-                        "Export Data to File",
-                        on_click=GlobalLobbyState.export_data_to_file,
-                        class_name="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-medium transition-colors shadow-sm",
-                    ),
-                    class_name="mb-3",
-                ),
-                rx.el.div(
-                    rx.upload(
-                        rx.button(
-                            "Import Data from File",
-                            class_name="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors shadow-sm",
-                        ),
-                        accept="application/json",
-                        max_files=1,
-                        on_drop=GlobalLobbyState.import_data_from_upload,
-                    ),
-                    class_name="flex items-center gap-3",
-                ),
-                class_name="bg-white p-4 rounded-xl border border-gray-100 shadow-sm",
-            ),
-            class_name="grid gap-4",
+            data_maintenance_card(),
+            permissions_card(),
+            class_name="grid gap-6 lg:grid-cols-2",
         ),
         class_name="space-y-4",
     )
@@ -275,11 +440,44 @@ def admin_dashboard():
                 class_name="flex items-center justify-between mb-8",
             ),
             rx.tabs.root(
-                rx.tabs.list(
-                    rx.tabs.trigger("Users", value="users"),
-                    rx.tabs.trigger("Rooms", value="rooms"),
-                    rx.tabs.trigger("Messages", value="messages"),
-                    rx.tabs.trigger("Settings", value="settings"),
+                rx.el.div(
+                    rx.tabs.list(
+                        rx.tabs.trigger("Users", value="users", on_click=AdminState.close_settings_menu),
+                        rx.tabs.trigger("Rooms", value="rooms", on_click=AdminState.close_settings_menu),
+                        rx.tabs.trigger("Messages", value="messages", on_click=AdminState.close_settings_menu),
+                        rx.tabs.trigger(
+                            rx.el.div(
+                                rx.el.span("Settings", class_name="mr-1"),
+                                rx.icon(
+                                    "chevron-down",
+                                    class_name="h-4 w-4 transition-transform",
+                                    style={"transform": rx.cond(AdminState.is_settings_menu_open, "rotate(180deg)", "rotate(0deg)")},
+                                ),
+                                class_name="flex items-center",
+                            ),
+                            value="settings",
+                            on_click=AdminState.toggle_settings_menu,
+                            class_name="relative",
+                        ),
+                        class_name="relative",
+                    ),
+                    rx.cond(
+                        AdminState.is_settings_menu_open,
+                        rx.el.div(
+                            rx.el.button(
+                                "Data Maintenance",
+                                on_click=lambda: AdminState.go_to_settings_anchor("data-maintenance"),
+                                class_name="w-48 text-left px-3 py-2 text-sm font-medium hover:bg-gray-50",
+                            ),
+                            rx.el.button(
+                                "Permissions",
+                                on_click=lambda: AdminState.go_to_settings_anchor("permissions"),
+                                class_name="w-48 text-left px-3 py-2 text-sm font-medium hover:bg-gray-50",
+                            ),
+                            class_name="absolute right-0 mt-2 bg-white border border-gray-200 rounded-lg shadow-lg z-30 divide-y divide-gray-100",
+                        ),
+                    ),
+                    class_name="relative",
                 ),
                 rx.tabs.content(
                     users_table(),

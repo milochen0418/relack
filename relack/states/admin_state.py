@@ -5,6 +5,8 @@ from relack.states.shared_state import GlobalLobbyState
 class AdminState(rx.State):
     passcode_input: str = ""
     is_authenticated: bool = False
+    is_settings_menu_open: bool = False
+    active_settings_anchor: str = "data-maintenance"
 
     @rx.event
     def set_passcode_input(self, value: str):
@@ -25,3 +27,17 @@ class AdminState(rx.State):
     def logout(self):
         self.is_authenticated = False
         self.passcode_input = ""
+
+    @rx.event
+    def toggle_settings_menu(self):
+        self.is_settings_menu_open = not self.is_settings_menu_open
+
+    @rx.event
+    def close_settings_menu(self):
+        self.is_settings_menu_open = False
+
+    @rx.event
+    def go_to_settings_anchor(self, anchor: str):
+        self.active_settings_anchor = anchor
+        self.is_settings_menu_open = False
+        return rx.scroll_to(anchor)
