@@ -302,7 +302,10 @@ def permission_toggle(label: str, description: str, checked, on_change):
             rx.switch(
                 checked=checked,
                 on_change=on_change,
-                class_name="data-[state=checked]:bg-violet-600",
+                class_name=(
+                    "bg-white border border-gray-300 shadow-none "
+                    "data-[state=checked]:bg-white data-[state=checked]:border-gray-400"
+                ),
             ),
             class_name="flex items-center justify-between gap-3",
         ),
