@@ -459,7 +459,7 @@ def admin_dashboard():
                             on_click=AdminState.toggle_settings_menu,
                             class_name="relative",
                         ),
-                        class_name="relative",
+                        class_name="relative w-full flex gap-6",
                     ),
                     rx.cond(
                         AdminState.is_settings_menu_open,
@@ -477,7 +477,8 @@ def admin_dashboard():
                             class_name="absolute right-0 mt-2 bg-white border border-gray-200 rounded-lg shadow-lg z-30 divide-y divide-gray-100",
                         ),
                     ),
-                    class_name="relative",
+                    class_name="relative block w-full sticky bg-white/95 backdrop-blur-md px-1 py-2 z-40",
+                    style={"top": "72px"},
                 ),
                 rx.tabs.content(
                     users_table(),
