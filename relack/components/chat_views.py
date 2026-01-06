@@ -36,10 +36,6 @@ def room_card(room: RoomInfo) -> rx.Component:
             rx.el.div(
                 rx.el.div(
                     rx.el.h3(room.name, class_name="font-semibold text-gray-900"),
-                    rx.el.span(
-                        f"{room.participant_count}",
-                        class_name="text-xs font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700",
-                    ),
                     class_name="flex items-center justify-between mb-1",
                 ),
                 rx.el.p(
@@ -167,6 +163,16 @@ def message_bubble(msg: ChatMessage) -> rx.Component:
     is_me = (msg.sender == AuthState.user.username) | (
         msg.sender == AuthState.user.nickname
     )
+    display_name = rx.cond(
+        msg.display_name != "",
+        msg.display_name,
+        msg.sender,
+    )
+    avatar_seed = rx.cond(
+        RoomState.avatar_seed_map.get(msg.sender, "") != "",
+        RoomState.avatar_seed_map.get(msg.sender, ""),
+        msg.sender,
+    )
     return rx.el.div(
         rx.cond(
             msg.is_system,
@@ -182,7 +188,7 @@ def message_bubble(msg: ChatMessage) -> rx.Component:
                     ~is_me,
                     rx.el.a(
                         rx.image(
-                            src=f"https://api.dicebear.com/9.x/notionists/svg?seed={msg.sender}",
+                                src=f"https://api.dicebear.com/9.x/notionists/svg?seed={avatar_seed}",
                             class_name="size-8 rounded-full bg-white border border-gray-100 shadow-sm hover:scale-105 transition-transform",
                         ),
                         href=f"/profile/{msg.sender}",
@@ -194,7 +200,7 @@ def message_bubble(msg: ChatMessage) -> rx.Component:
                         rx.cond(
                             ~is_me,
                             rx.el.span(
-                                msg.sender,
+                                    display_name,
                                 class_name="text-xs font-semibold text-gray-500 mb-1 ml-1 block",
                             ),
                         ),
@@ -266,10 +272,6 @@ def users_panel() -> rx.Component:
                 "Online Users",
                 class_name="text-sm font-bold text-gray-900 uppercase tracking-wider",
             ),
-            rx.el.span(
-                RoomState.active_user_count,
-                class_name="text-xs font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700",
-            ),
             class_name="flex items-center justify-between mb-4 px-2",
         ),
         rx.el.div(
@@ -297,10 +299,6 @@ def chat_area() -> rx.Component:
                     rx.el.h2(
                         RoomState.room_name,
                         class_name="text-lg font-bold text-gray-900",
-                    ),
-                    rx.el.span(
-                        f"{RoomState.active_user_count} online",
-                        class_name="text-sm text-green-600 font-medium flex items-center gap-1.5",
                     ),
                     class_name="flex items-center gap-4 ml-4",
                 ),
@@ -380,4 +378,10 @@ def chat_dashboard() -> rx.Component:
         sidebar(),
         rx.cond(RoomState.in_room, chat_area(), empty_state()),
         class_name="flex h-[calc(100vh-73px)] overflow-hidden bg-gray-50/50",
+        # Ensure lobby link exists so room list is populated even after reloads.
+        on_mount=[GlobalLobbyState.join_lobby, RoomState.rejoin_last_room, RoomState.heartbeat],
+        on_focus=RoomState.heartbeat,
+        on_mouse_enter=RoomState.heartbeat,
+        on_mouse_move=RoomState.heartbeat,
+        tab_index=0,
     )

@@ -104,7 +104,6 @@ def rooms_table():
                     rx.table.row(
                         rx.table.column_header_cell("Name"),
                         rx.table.column_header_cell("Description"),
-                        rx.table.column_header_cell("Participants"),
                         rx.table.column_header_cell("Created By"),
                     )
                 ),
@@ -114,7 +113,6 @@ def rooms_table():
                         lambda room: rx.table.row(
                             rx.table.cell(room.name),
                             rx.table.cell(room.description),
-                            rx.table.cell(room.participant_count),
                             rx.table.cell(room.created_by),
                         ),
                     )

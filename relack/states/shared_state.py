@@ -122,13 +122,6 @@ class GlobalLobbyState(rx.SharedState):
         if len(room_msgs) > 200:
             room_msgs[:] = room_msgs[-200:]
 
-    def _update_participant_count(self, room_name: str, delta: int):
-        """Helper to update participant counts. Must be called on a linked state."""
-        if room_name in self._rooms:
-            room = self._rooms[room_name]
-            room.participant_count += delta
-            self._rooms[room_name] = room
-
     @rx.event
     async def clear_all_data(self):
         """Resets all shared state data to initial state."""
@@ -272,11 +265,15 @@ class RoomState(rx.SharedState):
 
     _active_users: dict[str, str] = {}
     _active_user_profiles: dict[str, UserProfile] = {}
+    _active_user_last_seen: dict[str, float] = {}
     _messages: list[ChatMessage] = []
-    _room_name: str = ""
+    _current_room_by_client: dict[str, str] = {}
     current_message: str = ""
     is_sidebar_open: bool = True
     is_user_list_open: bool = False
+    STALE_WINDOW_SECONDS: int = 180
+    # Track last joined room per browser tab (session-scoped to avoid cross-tab interference).
+    last_room_name: str = rx.SessionStorage("", name="relack_last_room")
 
     @rx.event
     def toggle_sidebar(self):
@@ -288,11 +285,13 @@ class RoomState(rx.SharedState):
 
     @rx.var
     def in_room(self) -> bool:
-        return self._room_name != ""
+        client_token = self.router.session.client_token
+        return bool(self._current_room_by_client.get(client_token))
 
     @rx.var
     def room_name(self) -> str:
-        return self._room_name
+        client_token = self.router.session.client_token
+        return self._current_room_by_client.get(client_token, "")
 
     @rx.var
     def messages(self) -> list[ChatMessage]:
@@ -304,11 +303,78 @@ class RoomState(rx.SharedState):
 
     @rx.var
     def online_users_list(self) -> list[UserProfile]:
-        return list(self._active_user_profiles.values())
+        # Deduplicate by username and filter out stale sessions.
+        now_ts = datetime.datetime.utcnow().timestamp()
+        unique: dict[str, UserProfile] = {}
+        for token, profile in self._active_user_profiles.items():
+            last_seen = self._active_user_last_seen.get(token, now_ts)
+            if now_ts - last_seen > self.STALE_WINDOW_SECONDS:
+                continue
+            if profile.username not in unique:
+                unique[profile.username] = profile
+        return list(unique.values())
 
     @rx.var
-    def active_user_count(self) -> int:
-        return len(self._active_users)
+    def display_name_map(self) -> dict[str, str]:
+        # Map canonical username/email to preferred display nickname.
+        mapping: dict[str, str] = {}
+        for profile in self._active_user_profiles.values():
+            mapping[profile.username] = profile.nickname or profile.username
+        return mapping
+
+    @rx.var
+    def avatar_seed_map(self) -> dict[str, str]:
+        # Use stored avatar seed per user; fall back to username/email if missing.
+        mapping: dict[str, str] = {}
+        for profile in self._active_user_profiles.values():
+            mapping[profile.username] = profile.avatar_seed or profile.username
+        return mapping
+
+    async def _prune_stale_clients(self, now_ts: float | None = None):
+        """Remove clients that have not sent a heartbeat recently."""
+        now_val = now_ts or datetime.datetime.utcnow().timestamp()
+        stale_tokens = [
+            token
+            for token, ts in self._active_user_last_seen.items()
+            if now_val - ts > self.STALE_WINDOW_SECONDS
+        ]
+        if not stale_tokens:
+            return
+        for token in stale_tokens:
+            self._active_user_last_seen.pop(token, None)
+            self._active_users.pop(token, None)
+            self._active_user_profiles.pop(token, None)
+
+    @rx.event
+    async def heartbeat(self):
+        """Refresh presence for this client and prune stale sessions."""
+        if not self.room_name:
+            return
+        client_token = self.router.session.client_token
+        now_ts = datetime.datetime.utcnow().timestamp()
+        self._active_user_last_seen[client_token] = now_ts
+        await self._prune_stale_clients(now_ts)
+
+    @rx.event
+    async def on_disconnect(self):
+        """Cleanup presence when the client disconnects (e.g., tab closed)."""
+        if not self.room_name:
+            return
+        client_token = self.router.session.client_token
+        self._active_user_last_seen.pop(client_token, None)
+        self._active_users.pop(client_token, None)
+        self._active_user_profiles.pop(client_token, None)
+        self._current_room_by_client.pop(client_token, None)
+
+    @rx.event
+    async def rejoin_last_room(self):
+        """Rejoin the last room stored locally, if not already in a room."""
+        if self.room_name or not self.last_room_name:
+            return
+        auth = await self.get_state(AuthState)
+        if not auth.user:
+            return
+        yield RoomState.handle_join_room(self.last_room_name)
 
     @rx.event
     def reset_room_state(self):
@@ -316,7 +382,8 @@ class RoomState(rx.SharedState):
         self._active_users = {}
         self._active_user_profiles = {}
         self._messages = []
-        self._room_name = ""
+        self._current_room_by_client = {}
+        self.last_room_name = ""
         self.current_message = ""
 
     @rx.event
@@ -324,11 +391,13 @@ class RoomState(rx.SharedState):
         auth = await self.get_state(AuthState)
         if not auth.user:
             return rx.toast("Please log in to join rooms")
-        if self._room_name:
+        if self.room_name:
             await self.handle_leave_room()
         safe_token = f"room-{room_name.replace(' ', '-').replace('_', '-').lower()}"
         new_room_state = await self._link_to(safe_token)
-        new_room_state._room_name = room_name
+        client_token = self.router.session.client_token
+        new_room_state._current_room_by_client[client_token] = room_name
+        new_room_state.last_room_name = room_name
         # Load existing history for this room from lobby snapshot (if any)
         lobby = await self.get_state(GlobalLobbyState)
         if not lobby._linked_to:
@@ -339,17 +408,9 @@ class RoomState(rx.SharedState):
         new_room_state._messages = list(prior_msgs)
 
         username = auth.user.username
-        client_token = self.router.session.client_token
         new_room_state._active_users[client_token] = username
         new_room_state._active_user_profiles[client_token] = auth.user
-        join_msg = ChatMessage(
-            id=str(uuid.uuid4()),
-            sender="System",
-            content=f"{username} joined the room.",
-            timestamp=datetime.datetime.now().strftime("%H:%M"),
-            is_system=True,
-        )
-        new_room_state._messages.append(join_msg)
+        new_room_state._active_user_last_seen[client_token] = datetime.datetime.utcnow().timestamp()
         room_info = lobby_linked._rooms.get(room_name)
         if room_info and room_info.created_by != "System":
             creator_msg = ChatMessage(
@@ -361,34 +422,25 @@ class RoomState(rx.SharedState):
             )
             new_room_state._messages.append(creator_msg)
             await lobby.record_message(room_name, creator_msg)
-        if lobby._linked_to == "global-lobby":
-            lobby._update_participant_count(room_name, 1)
-        await lobby.record_message(room_name, join_msg)
 
     @rx.event
     async def handle_leave_room(self):
-        if not self._room_name:
-            return
         client_token = self.router.session.client_token
-        username = self._active_users.get(client_token, "Someone")
-        leave_msg = ChatMessage(
-            id=str(uuid.uuid4()),
-            sender="System",
-            content=f"{username} left the room.",
-            timestamp=datetime.datetime.now().strftime("%H:%M"),
-            is_system=True,
-        )
-        self._messages.append(leave_msg)
+        current_room = self._current_room_by_client.get(client_token, "")
+        if not current_room:
+            return
         lobby = await self.get_state(GlobalLobbyState)
-        await lobby.record_message(self._room_name, leave_msg)
         if client_token in self._active_users:
             del self._active_users[client_token]
         if client_token in self._active_user_profiles:
             del self._active_user_profiles[client_token]
-        if lobby._linked_to == "global-lobby":
-            lobby._update_participant_count(self._room_name, -1)
-        await self._unlink()
-        self._room_name = ""
+        if client_token in self._active_user_last_seen:
+            del self._active_user_last_seen[client_token]
+        self._current_room_by_client.pop(client_token, None)
+        # Only unlink if this state instance is actually linked; avoids runtime errors on logout
+        # when session storage still has a room name but no active room link.
+        if self._linked_to:
+            await self._unlink()
 
     @rx.event
     async def send_message(self, form_data: dict[str, Any]):
@@ -397,14 +449,20 @@ class RoomState(rx.SharedState):
             return
         client_token = self.router.session.client_token
         sender = self._active_users.get(client_token, "Unknown")
+        profile = self._active_user_profiles.get(client_token)
+        display_name = sender
+        if profile:
+            display_name = profile.nickname or profile.username
+
         msg = ChatMessage(
             id=str(uuid.uuid4()),
             sender=sender,
+            display_name=display_name,
             content=message_text,
             timestamp=datetime.datetime.now().strftime("%H:%M"),
             is_system=False,
         )
         self._messages.append(msg)
         lobby = await self.get_state(GlobalLobbyState)
-        await lobby.record_message(self._room_name, msg)
+        await lobby.record_message(self.room_name, msg)
         self.current_message = ""

@@ -18,6 +18,7 @@ class UserProfile(BaseModel):
 class ChatMessage(BaseModel):
     id: str
     sender: str
+    display_name: str = ""
     content: str
     timestamp: str
     is_system: bool = False

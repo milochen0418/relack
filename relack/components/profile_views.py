@@ -123,6 +123,14 @@ def profile_view() -> rx.Component:
                                 ),
                             ),
                             profile_detail_item(
+                                "Email",
+                                rx.cond(
+                                    user.email != "",
+                                    user.email,
+                                    "Not provided",
+                                ),
+                            ),
+                            profile_detail_item(
                                 "Member Since",
                                 rx.cond(
                                     user.created_at,
