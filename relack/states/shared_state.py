@@ -268,6 +268,9 @@ class RoomState(rx.SharedState):
     _active_user_last_seen: dict[str, float] = {}
     _messages: list[ChatMessage] = []
     _current_room_by_client: dict[str, str] = {}
+    _message_counts_by_room: dict[str, int] = {}
+    # Track last seen message counts per room per tab to compute unread badge (serialized for SessionStorage).
+    last_seen_counts_json: str = rx.SessionStorage("{}", name="relack_last_seen_counts")
     current_message: str = ""
     is_sidebar_open: bool = True
     is_user_list_open: bool = False
@@ -330,6 +333,21 @@ class RoomState(rx.SharedState):
             mapping[profile.username] = profile.avatar_seed or profile.username
         return mapping
 
+    @rx.var
+    def unread_counts(self) -> dict[str, int]:
+        # Compute unread per room using total messages vs last seen per tab.
+        counts: dict[str, int] = {}
+        last_seen_map: dict[str, int]
+        try:
+            last_seen_map = json.loads(self.last_seen_counts_json or "{}")
+        except Exception:
+            last_seen_map = {}
+        for room_name, total in self._message_counts_by_room.items():
+            last_seen = last_seen_map.get(room_name, 0)
+            diff = total - last_seen
+            counts[room_name] = diff if diff > 0 else 0
+        return counts
+
     async def _prune_stale_clients(self, now_ts: float | None = None):
         """Remove clients that have not sent a heartbeat recently."""
         now_val = now_ts or datetime.datetime.utcnow().timestamp()
@@ -347,7 +365,14 @@ class RoomState(rx.SharedState):
 
     @rx.event
     async def heartbeat(self):
-        """Refresh presence for this client and prune stale sessions."""
+        """Refresh presence for this client, sync message counts, and prune stale sessions."""
+        # Sync per-room message counts from lobby snapshot so unread badges stay current even when not in that room.
+        lobby = await self.get_state(GlobalLobbyState)
+        if not lobby._linked_to:
+            lobby = await lobby._link_to("global-lobby")
+        self._message_counts_by_room = {room: len(msgs) for room, msgs in lobby._messages_by_room.items()}
+
+        # Presence refresh only if currently in a room.
         if not self.room_name:
             return
         client_token = self.router.session.client_token
@@ -383,7 +408,9 @@ class RoomState(rx.SharedState):
         self._active_user_profiles = {}
         self._messages = []
         self._current_room_by_client = {}
+        self._message_counts_by_room = {}
         self.last_room_name = ""
+        self.last_seen_counts_json = "{}"
         self.current_message = ""
 
     @rx.event
@@ -406,6 +433,7 @@ class RoomState(rx.SharedState):
             lobby_linked = lobby
         prior_msgs = lobby_linked._messages_by_room.get(room_name, [])
         new_room_state._messages = list(prior_msgs)
+        new_room_state._message_counts_by_room[room_name] = len(prior_msgs)
 
         username = auth.user.username
         new_room_state._active_users[client_token] = username
@@ -421,7 +449,16 @@ class RoomState(rx.SharedState):
                 is_system=True,
             )
             new_room_state._messages.append(creator_msg)
+            new_room_state._message_counts_by_room[room_name] = len(new_room_state._messages)
             await lobby.record_message(room_name, creator_msg)
+
+        # Mark this room as read on join for this tab.
+        try:
+            counts = json.loads(new_room_state.last_seen_counts_json or "{}")
+        except Exception:
+            counts = {}
+        counts[room_name] = new_room_state._message_counts_by_room.get(room_name, 0)
+        new_room_state.last_seen_counts_json = json.dumps(counts)
 
     @rx.event
     async def handle_leave_room(self):
@@ -463,6 +500,17 @@ class RoomState(rx.SharedState):
             is_system=False,
         )
         self._messages.append(msg)
+        self._message_counts_by_room[self.room_name] = len(self._messages)
         lobby = await self.get_state(GlobalLobbyState)
         await lobby.record_message(self.room_name, msg)
         self.current_message = ""
+
+    @rx.event
+    def mark_room_read(self, room_name: str):
+        """Set last seen count for a room to current total so unread badge clears."""
+        try:
+            counts = json.loads(self.last_seen_counts_json or "{}")
+        except Exception:
+            counts = {}
+        counts[room_name] = self._message_counts_by_room.get(room_name, 0)
+        self.last_seen_counts_json = json.dumps(counts)

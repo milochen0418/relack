@@ -31,11 +31,22 @@ class CreateRoomState(rx.State):
 
 
 def room_card(room: RoomInfo) -> rx.Component:
+    unread_badge = rx.cond(
+        RoomState.unread_counts.get(room.name, 0) > 0,
+        rx.el.span(
+            RoomState.unread_counts.get(room.name, 0),
+            class_name="ml-2 inline-flex items-center justify-center min-w-[22px] px-1.5 h-[22px] text-[11px] font-semibold text-white bg-red-500 rounded-full shadow-sm",
+        ),
+    )
     return rx.el.div(
         rx.el.button(
             rx.el.div(
                 rx.el.div(
-                    rx.el.h3(room.name, class_name="font-semibold text-gray-900"),
+                    rx.el.div(
+                        rx.el.h3(room.name, class_name="font-semibold text-gray-900"),
+                        unread_badge,
+                        class_name="flex items-center gap-1",
+                    ),
                     class_name="flex items-center justify-between mb-1",
                 ),
                 rx.el.p(
@@ -51,7 +62,7 @@ def room_card(room: RoomInfo) -> rx.Component:
                 ),
                 class_name="w-full",
             ),
-            on_click=lambda: RoomState.handle_join_room(room.name),
+            on_click=lambda: [RoomState.handle_join_room(room.name), RoomState.mark_room_read(room.name)],
             class_name="w-full text-left",
         ),
         rx.cond(
