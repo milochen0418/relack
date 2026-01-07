@@ -144,10 +144,14 @@ class AuthState(GoogleAuthState):
     @rx.event
     async def logout(self):
         """Completely clear all session and local data."""
-        from relack.states.shared_state import RoomState
+        from relack.states.shared_state import RoomState, TabSessionState
         room_state = await self.get_state(RoomState)
         if room_state.in_room:
             await room_state.handle_leave_room()
+
+        # Clear tab-scoped session snapshots before wiping browser storage.
+        tab_state = await self.get_state(TabSessionState)
+        tab_state.reset_tab_session()
 
         self.user_profile_json = ""
         self.guest_nickname = ""
