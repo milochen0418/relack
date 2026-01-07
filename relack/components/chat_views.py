@@ -1,5 +1,5 @@
 import reflex as rx
-from relack.states.shared_state import GlobalLobbyState, RoomState
+from relack.states.shared_state import GlobalLobbyState, RoomState, TabSessionState
 from relack.states.auth_state import AuthState
 from relack.models import RoomInfo, ChatMessage, UserProfile
 
@@ -38,6 +38,13 @@ def room_card(room: RoomInfo) -> rx.Component:
                     rx.el.div(
                         rx.el.h3(room.name, class_name="font-semibold text-gray-900"),
                         class_name="flex items-center gap-1",
+                    ),
+                    rx.cond(
+                        TabSessionState.unread_counts[room.name] > 0,
+                        rx.el.span(
+                            TabSessionState.unread_counts[room.name],
+                            class_name="bg-violet-600 text-white text-xs font-bold px-2 py-0.5 rounded-full ml-2",
+                        ),
                     ),
                     class_name="flex items-center justify-between mb-1",
                 ),

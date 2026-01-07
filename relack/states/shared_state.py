@@ -268,6 +268,22 @@ class TabSessionState(rx.State):
     last_room_name: str = rx.SessionStorage("", name="relack_last_room")
     curr_room_name: str = rx.SessionStorage("", name="relack_curr_room")
 
+    @rx.var
+    def unread_counts(self) -> dict[str, int]:
+        try:
+            total_counts = json.loads(self.all_room_counts_json or "{}")
+            read_counts = json.loads(self.all_room_read_counts_json or "{}")
+        except Exception:
+            return {}
+
+        diff = {}
+        for room, count in total_counts.items():
+            read = read_counts.get(room, 0)
+            val = count - read
+            if val > 0:
+                diff[room] = val
+        return diff
+
     @rx.event
     def reset_tab_session(self):
         self.all_room_counts_json = "{}"
