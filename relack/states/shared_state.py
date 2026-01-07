@@ -470,15 +470,16 @@ class RoomState(rx.SharedState):
         auth = await self.get_state(AuthState)
         if not auth.user:
             return rx.toast("Please log in to join rooms")
+        # Set curr_room_name immediately to prevent UI unselect during re-join
+        tab_state = await self.get_state(TabSessionState)
+        tab_state.curr_room_name = room_name
         if self.room_name:
             await self.handle_leave_room()
         safe_token = f"room-{room_name.replace(' ', '-').replace('_', '-').lower()}"
         new_room_state = await self._link_to(safe_token)
         client_token = self.router.session.client_token
         new_room_state._current_room_by_client[client_token] = room_name
-        tab_state = await self.get_state(TabSessionState)
         tab_state.last_room_name = room_name
-        tab_state.curr_room_name = room_name
         # Load existing history for this room from lobby snapshot (if any)
         lobby = await self.get_state(GlobalLobbyState)
         if not lobby._linked_to:
