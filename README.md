@@ -77,6 +77,12 @@ poetry run reflex run
 
 The application will be available at `http://localhost:3000`.
 
+For quick restarts during development (kills anything on ports 3000/8000, then restarts Reflex):
+
+```bash
+poetry run ./reflex_rerun.sh
+```
+
 ### Python version help (common first-run issue)
 
 If you see an error like `Current Python version (3.x) is not allowed by the project (>=3.11,<3.12)`, point Poetry at a 3.11 interpreter and retry:
