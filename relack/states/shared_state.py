@@ -513,11 +513,19 @@ class RoomState(rx.SharedState):
         auth = await self.get_state(AuthState)
         if not auth.user:
             return rx.toast("Please log in to join rooms")
+            
+        # Optimization: If already in this room, just mark as read/refresh and return
+        # This prevents unnecessary unlink/link cycles which can cause UI state flicker or "No room selected"
+        if self.room_name == room_name:
+            await self.mark_room_read_to_current(room_name)
+            await self.heartbeat()
+            return
+
         # Set curr_room_name immediately to prevent UI unselect during re-join
         tab_state = await self.get_state(TabSessionState)
         tab_state.curr_room_name = room_name
         if self.room_name:
-            await self.handle_leave_room()
+            await self._internal_leave_room(clear_tab_state=False)
         safe_token = f"room-{room_name.replace(' ', '-').replace('_', '-').lower()}"
         new_room_state = await self._link_to(safe_token)
         client_token = self.router.session.client_token
@@ -555,8 +563,7 @@ class RoomState(rx.SharedState):
         # Mark only this room as read at its current total.
         await new_room_state.mark_room_read_to_current(room_name)
 
-    @rx.event
-    async def handle_leave_room(self):
+    async def _internal_leave_room(self, clear_tab_state: bool):
         client_token = self.router.session.client_token
         current_room = self._current_room_by_client.get(client_token, "")
         
@@ -578,11 +585,16 @@ class RoomState(rx.SharedState):
             del self._active_user_last_seen[client_token]
         self._current_room_by_client.pop(client_token, None)
         tab_state = await self.get_state(TabSessionState)
-        tab_state.curr_room_name = ""
+        if clear_tab_state:
+            tab_state.curr_room_name = ""
         # Only unlink if this state instance is actually linked; avoids runtime errors on logout
         # when session storage still has a room name but no active room link.
         if self._linked_to:
             await self._unlink()
+
+    @rx.event
+    async def handle_leave_room(self):
+        await self._internal_leave_room(clear_tab_state=True)
 
     @rx.event
     async def send_message(self, form_data: dict[str, Any]):
