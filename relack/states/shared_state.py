@@ -18,6 +18,7 @@ class GlobalLobbyState(rx.SharedState):
 
     _rooms: dict[str, RoomInfo] = {}
     _known_profiles: dict[str, UserProfile] = {}
+    _user_locations: dict[str, str] = {}
     _messages_by_room: dict[str, list[ChatMessage]] = {}
     _permissions: PermissionConfig = PermissionConfig()
     export_payload: str = ""
@@ -53,6 +54,8 @@ class GlobalLobbyState(rx.SharedState):
         auth = await self.get_state(AuthState)
         if auth.user:
             new_state._known_profiles[auth.user.username] = auth.user
+        if not hasattr(new_state, "_user_locations"):
+            new_state._user_locations = {}
         if not new_state._rooms:
             new_state._rooms = {
                 "General": RoomInfo(
@@ -418,25 +421,49 @@ class RoomState(rx.SharedState):
         tab_state = await self.get_state(TabSessionState)
         tab_state.all_room_counts_json = json.dumps(self._message_counts_by_room)
 
+        # Always prune stale clients to keep online status accurate
+        now_ts = datetime.datetime.utcnow().timestamp()
+        await self._prune_stale_clients(now_ts)
+
         # Presence refresh only if currently in a room.
         if not self.room_name:
             tab_state.curr_room_name = ""
             return
         client_token = self.router.session.client_token
-        now_ts = datetime.datetime.utcnow().timestamp()
         self._active_user_last_seen[client_token] = now_ts
-        await self._prune_stale_clients(now_ts)
 
     @rx.event
     async def on_disconnect(self):
         """Cleanup presence when the client disconnects (e.g., tab closed)."""
-        if not self.room_name:
-            return
         client_token = self.router.session.client_token
-        self._active_user_last_seen.pop(client_token, None)
-        self._active_users.pop(client_token, None)
-        self._active_user_profiles.pop(client_token, None)
-        self._current_room_by_client.pop(client_token, None)
+        
+        # 1. Try to identify room from local context
+        room_name = self.room_name
+        
+        # 2. If not found locally, check global registry
+        lobby = await self.get_state(GlobalLobbyState)
+        if not lobby._linked_to:
+            lobby = await lobby._link_to("global-lobby")
+            
+        if not room_name and hasattr(lobby, "_user_locations"):
+            room_name = lobby._user_locations.get(client_token, "")
+            
+        # 3. Clean up global registry
+        if hasattr(lobby, "_user_locations"):
+            lobby._user_locations.pop(client_token, None)
+
+        if not room_name:
+            return
+
+        # 4. Link to the correct room state instance and remove user
+        safe_token = f"room-{room_name.replace(' ', '-').replace('_', '-').lower()}"
+        target_state = await self._link_to(safe_token)
+        
+        target_state._active_user_last_seen.pop(client_token, None)
+        target_state._active_users.pop(client_token, None)
+        target_state._active_user_profiles.pop(client_token, None)
+        target_state._current_room_by_client.pop(client_token, None)
+        
         tab_state = await self.get_state(TabSessionState)
         tab_state.curr_room_name = ""
 
@@ -486,6 +513,12 @@ class RoomState(rx.SharedState):
             lobby_linked = await lobby._link_to("global-lobby")
         else:
             lobby_linked = lobby
+
+        # Update global user location tracking
+        if not hasattr(lobby_linked, "_user_locations"):
+            lobby_linked._user_locations = {}
+        lobby_linked._user_locations[client_token] = room_name
+
         prior_msgs = lobby_linked._messages_by_room.get(room_name, [])
         new_room_state._messages = list(prior_msgs)
         new_room_state._message_counts_by_room = {
@@ -510,9 +543,17 @@ class RoomState(rx.SharedState):
     async def handle_leave_room(self):
         client_token = self.router.session.client_token
         current_room = self._current_room_by_client.get(client_token, "")
+        
+        # Always clean up global location tracking
+        lobby = await self.get_state(GlobalLobbyState)
+        if not lobby._linked_to:
+            lobby = await lobby._link_to("global-lobby")
+        if hasattr(lobby, "_user_locations"):
+            lobby._user_locations.pop(client_token, None)
+
         if not current_room:
             return
-        lobby = await self.get_state(GlobalLobbyState)
+            
         if client_token in self._active_users:
             del self._active_users[client_token]
         if client_token in self._active_user_profiles:
