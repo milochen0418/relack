@@ -269,6 +269,8 @@ class RoomState(rx.SharedState):
     _messages: list[ChatMessage] = []
     _current_room_by_client: dict[str, str] = {}
     _message_counts_by_room: dict[str, int] = {}
+    _room_creator_map: dict[str, str] = {}
+    _known_profiles_snapshot: dict[str, UserProfile] = {}
     # Track last seen message counts per room per tab to compute unread badge (serialized for SessionStorage).
     last_seen_counts_json: str = rx.SessionStorage("{}", name="relack_last_seen_counts")
     current_message: str = ""
@@ -348,6 +350,20 @@ class RoomState(rx.SharedState):
             counts[room_name] = diff if diff > 0 else 0
         return counts
 
+    @rx.var
+    def room_creator_username(self) -> str:
+        return self._room_creator_map.get(self.room_name, "")
+
+    @rx.var
+    def room_creator_display(self) -> str:
+        username = self.room_creator_username
+        if not username:
+            return ""
+        profile = self._known_profiles_snapshot.get(username)
+        if profile and profile.nickname:
+            return profile.nickname
+        return username
+
     async def _prune_stale_clients(self, now_ts: float | None = None):
         """Remove clients that have not sent a heartbeat recently."""
         now_val = now_ts or datetime.datetime.utcnow().timestamp()
@@ -371,6 +387,8 @@ class RoomState(rx.SharedState):
         if not lobby._linked_to:
             lobby = await lobby._link_to("global-lobby")
         self._message_counts_by_room = {room: len(msgs) for room, msgs in lobby._messages_by_room.items()}
+        self._room_creator_map = {room: info.created_by for room, info in lobby._rooms.items()}
+        self._known_profiles_snapshot = dict(lobby._known_profiles)
 
         # Presence refresh only if currently in a room.
         if not self.room_name:
@@ -409,6 +427,8 @@ class RoomState(rx.SharedState):
         self._messages = []
         self._current_room_by_client = {}
         self._message_counts_by_room = {}
+        self._room_creator_map = {}
+        self._known_profiles_snapshot = {}
         self.last_room_name = ""
         self.last_seen_counts_json = "{}"
         self.current_message = ""
@@ -434,23 +454,13 @@ class RoomState(rx.SharedState):
         prior_msgs = lobby_linked._messages_by_room.get(room_name, [])
         new_room_state._messages = list(prior_msgs)
         new_room_state._message_counts_by_room[room_name] = len(prior_msgs)
+        new_room_state._room_creator_map = {room: info.created_by for room, info in lobby_linked._rooms.items()}
+        new_room_state._known_profiles_snapshot = dict(lobby_linked._known_profiles)
 
         username = auth.user.username
         new_room_state._active_users[client_token] = username
         new_room_state._active_user_profiles[client_token] = auth.user
         new_room_state._active_user_last_seen[client_token] = datetime.datetime.utcnow().timestamp()
-        room_info = lobby_linked._rooms.get(room_name)
-        if room_info and room_info.created_by != "System":
-            creator_msg = ChatMessage(
-                id=str(uuid.uuid4()),
-                sender="System",
-                content=f"This room was created by {room_info.created_by}.",
-                timestamp=datetime.datetime.now().strftime("%H:%M"),
-                is_system=True,
-            )
-            new_room_state._messages.append(creator_msg)
-            new_room_state._message_counts_by_room[room_name] = len(new_room_state._messages)
-            await lobby.record_message(room_name, creator_msg)
 
         # Mark this room as read on join for this tab.
         try:

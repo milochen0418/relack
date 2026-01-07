@@ -53,13 +53,6 @@ def room_card(room: RoomInfo) -> rx.Component:
                     room.description,
                     class_name="text-xs text-gray-500 text-left truncate",
                 ),
-                rx.cond(
-                    room.created_by != "System",
-                    rx.el.p(
-                        f"By {room.created_by}",
-                        class_name="text-[10px] text-gray-400 text-left mt-1",
-                    ),
-                ),
                 class_name="w-full",
             ),
             on_click=lambda: [RoomState.handle_join_room(room.name), RoomState.mark_room_read(room.name)],
@@ -311,7 +304,25 @@ def chat_area() -> rx.Component:
                         RoomState.room_name,
                         class_name="text-lg font-bold text-gray-900",
                     ),
-                    class_name="flex items-center gap-4 ml-4",
+                    rx.cond(
+                        RoomState.room_creator_username != "",
+                        rx.cond(
+                            RoomState.room_creator_username == "System",
+                            rx.el.span(
+                                "By " + RoomState.room_creator_display,
+                                class_name="text-xs font-medium text-gray-500",
+                            ),
+                            rx.el.a(
+                                rx.el.span(
+                                    "By " + RoomState.room_creator_display,
+                                    class_name="text-xs font-medium text-gray-500 hover:text-gray-700 hover:underline",
+                                ),
+                                href="/profile/" + RoomState.room_creator_username,
+                                class_name="text-xs text-gray-500",
+                            ),
+                        ),
+                    ),
+                    class_name="flex items-center gap-3 ml-4",
                 ),
                 class_name="flex items-center",
             ),

@@ -13,5 +13,5 @@ else
   echo "No processes found on ports 3000 or 8000."
 fi
 
-echo "Starting Reflex app..."
-poetry run reflex run
+echo "Starting Reflex app with args: $@"
+poetry run reflex run "$@"
