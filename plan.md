@@ -1,21 +1,28 @@
-# Real-Time Chat Room Application
+# Relack — Current Feature Map
 
-## Phase 1: Core Infrastructure & Authentication ✅
-- [x] Set up shared state management for real-time synchronization
-- [x] Create guest authentication flow with nickname input
-- [x] Build login/registration UI with guest and authenticated options
-- [x] Implement basic app layout structure with navigation
+## Auth & Identity
+- Guest login with nickname; Google OAuth login (profile stored in LocalStorage)
+- Logout clears LocalStorage / SessionStorage and redirects home
+- Profile page with nickname/bio editing (self only); avatars via seeded images
 
-## Phase 2: Room Management & Chat Interface ✅
-- [x] Create room data models and shared room state
-- [x] Build Room Directory component with room list and user counts
-- [x] Implement room creation, joining, and leaving functionality
-- [x] Create chat interface with message history, input area, and send button
-- [x] Add message display with username, timestamp, and content formatting
+## Rooms & Messaging
+- Global lobby shared state with default rooms (General / Tech Talk / Random)
+- Create / delete rooms (creator-only delete); join/leave rooms; remember last room per tab
+- Room history persisted in lobby snapshot; messages capped per room (admin log)
+- Message send with display name/timestamp/system creator note; message list per room
 
-## Phase 3: User Profiles & Visual Polish ✅
-- [x] Create user profile page for authenticated users (bio, details)
-- [x] Add visual distinction for authenticated users (badge/medal icon)
-- [x] Implement responsive dual-pane layout (sidebar + main chat area)
-- [x] Add real-time user list per room with online indicators
-- [x] Polish UI with modern styling and smooth transitions
+## Presence & Unread
+- Per-room online user list with stale-session pruning via heartbeat/disconnect
+- Per-tab SessionStorage of last seen counts (per room) to drive unread badges
+- Heartbeat syncs per-room message totals from lobby for badge accuracy
+
+## Admin & Permissions
+- Admin passcode gate; admin menu toggle and tabs
+- Permission toggles scaffold (guest/google create room, mention, view profile, approvals)
+- Global clear/reset data (rooms, profiles, messages, permissions)
+- Export/import lobby snapshot (JSON) and download
+
+## UI/UX
+- Responsive dual-pane layout (sidebar + chat area); modern styled navbar, sidebar, badges
+- Room list with unread badge, creator metadata, and quick create button
+- Online users panel with status indicator; smooth hover/active styles
