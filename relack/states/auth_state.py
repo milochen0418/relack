@@ -146,8 +146,14 @@ class AuthState(GoogleAuthState):
         """Completely clear all session and local data."""
         from relack.states.shared_state import RoomState, TabSessionState
         room_state = await self.get_state(RoomState)
+        
+        # Ensure we properly clean up presence before logout
         if room_state.in_room:
+            # Call leave room to remove from active users
             await room_state.handle_leave_room()
+        
+        # Also explicitly trigger disconnect cleanup
+        await room_state.on_disconnect()
 
         # Clear tab-scoped session snapshots before wiping browser storage.
         tab_state = await self.get_state(TabSessionState)
