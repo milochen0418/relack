@@ -1,6 +1,7 @@
 import reflex as rx
 from relack.states.auth_state import AuthState
 from relack.states.shared_state import GlobalLobbyState
+from relack.states.admin_state import AdminState
 
 
 def navbar() -> rx.Component:
@@ -97,8 +98,25 @@ def navbar() -> rx.Component:
                         ),
                         class_name="flex items-center",
                     ),
-                    rx.el.span(
-                        "Not Connected", class_name="text-sm text-gray-400 italic"
+                    rx.cond(
+                        AdminState.is_authenticated,
+                        rx.el.div(
+                            rx.el.div(
+                                rx.icon("shield-check", class_name="h-4 w-4 text-white"),
+                                "Admin Mode",
+                                class_name="flex items-center gap-2 px-3 py-1 bg-gray-900 text-white text-sm font-medium rounded-full",
+                            ),
+                            rx.el.button(
+                                rx.icon("log-out", class_name="h-4 w-4"),
+                                "Exit",
+                                on_click=AdminState.logout,
+                                class_name="flex items-center gap-2 text-sm text-gray-500 hover:text-red-600 transition-colors ml-4",
+                            ),
+                            class_name="flex items-center",
+                        ),
+                        rx.el.span(
+                            "Not Connected", class_name="text-sm text-gray-400 italic"
+                        ),
                     ),
                 ),
                 class_name="flex items-center",

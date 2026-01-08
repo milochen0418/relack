@@ -435,14 +435,27 @@ def settings_panel():
 def admin_dashboard():
     return rx.el.div(
         rx.el.div(
+            # Banner Header
             rx.el.div(
-                rx.el.h1("Admin Dashboard", class_name="text-2xl font-bold text-gray-900"),
-                rx.el.button(
-                    "Logout",
-                    on_click=AdminState.logout,
-                    class_name="px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg font-medium transition-colors",
+                rx.el.div(
+                    rx.el.h1(
+                        "Admin Dashboard",
+                        class_name="text-3xl font-bold text-white mb-2"
+                    ),
+                    rx.el.p(
+                        "Manage users, rooms, and system settings.",
+                        class_name="text-indigo-100 font-medium"
+                    ),
+                    class_name="relative z-10 p-8",
                 ),
-                class_name="flex items-center justify-between mb-8",
+                # Decorative background
+                rx.el.div(
+                    class_name="absolute inset-0 bg-gradient-to-r from-violet-600 to-indigo-600 rounded-3xl opacity-90"
+                ),
+                rx.el.div(
+                    class_name="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1557683316-973673baf926?auto=format&fit=crop&q=80')] bg-cover bg-center rounded-3xl mix-blend-overlay opacity-50"
+                ),
+                class_name="relative rounded-3xl shadow-lg mb-8 overflow-hidden",
             ),
             rx.tabs.root(
                 rx.el.div(
