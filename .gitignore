@@ -5,6 +5,7 @@ assets/external/
 .states/
 __pycache__/
 /app/__pycache__/
+uploaded_files/
 
 # Mac
 .DS_Store
@@ -28,3 +29,4 @@ google_login_failure.png
 google_login_success.png
 guest_login_failure.png
 reflex.log
+
