@@ -10,6 +10,10 @@ Many enterprises are increasingly concerned that storing sensitive internal comm
 
 **Relack** was created to solve this problem. By providing a solution that can be fully self-hosted and controlled within your own infrastructure, Relack ensures that your organization's critical information remains private and secure, without sacrificing the modern chat experience.
 
+## Architecture & Design
+
+Interested in how Relack is built? Check out our [Project Design and Architecture Overview](docs/Relack%20Project%20Design%20and%20Architecture%20Overview.pdf).
+
 ## Features
 
 - **Full Data Control**: You own your data. No third-party SaaS lock-in.
