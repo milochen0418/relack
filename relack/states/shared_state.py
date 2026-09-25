@@ -264,6 +264,7 @@ class GlobalLobbyState(rx.SharedState):
 class TabSessionState(rx.State):
     """Per-tab session storage for room counts and selection."""
 
+    tab_id: str = rx.SessionStorage("", name="relack_tab_id")
     all_room_counts_json: str = rx.SessionStorage("{}", name="relack_all_room_count")
     all_room_read_counts_json: str = rx.SessionStorage("{}", name="relack_all_room_read_count")
     last_room_name: str = rx.SessionStorage("", name="relack_last_room")
@@ -352,7 +353,7 @@ class RoomState(rx.SharedState):
     _room_creator_map: dict[str, str] = {}
     _known_profiles_snapshot: dict[str, UserProfile] = {}
     current_message: str = ""
-    STALE_WINDOW_SECONDS: int = 60
+    STALE_WINDOW_SECONDS: int = 10
 
     @rx.var
     def in_room(self) -> bool:
@@ -378,7 +379,7 @@ class RoomState(rx.SharedState):
         now_ts = datetime.datetime.utcnow().timestamp()
         unique: dict[str, UserProfile] = {}
         for token, profile in self._active_user_profiles.items():
-            last_seen = self._active_user_last_seen.get(token, now_ts)
+            last_seen = self._active_user_last_seen.get(token, 0)
             if now_ts - last_seen > self.STALE_WINDOW_SECONDS:
                 continue
             if profile.username not in unique:
@@ -434,20 +435,21 @@ class RoomState(rx.SharedState):
     async def heartbeat(self):
         """Refresh presence for this client, sync message counts, and prune stale sessions."""
         client_token = self.router.session.client_token
+        tab_state = await self.get_state(TabSessionState)
+        if not tab_state.tab_id:
+            tab_state.tab_id = str(uuid.uuid4())
+        tab_id = tab_state.tab_id
+
         lobby = await self.get_state(GlobalLobbyState)
         if not lobby._linked_to:
             lobby = await lobby._link_to("global-lobby")
 
-        # If the server-side session was explicitly deleted (e.g. logout from
-        # another tab), remove this client's presence immediately.  Only act
-        # when we can positively confirm deletion (session_id present but gone
-        # from the store); skip the check when the cookie is unreadable.
         try:
             session_id = parse_session_id(self.router.headers.cookie)
             if session_id and not get_session(session_id):
-                self._active_users.pop(client_token, None)
-                self._active_user_profiles.pop(client_token, None)
-                self._active_user_last_seen.pop(client_token, None)
+                self._active_users.pop(tab_id, None)
+                self._active_user_profiles.pop(tab_id, None)
+                self._active_user_last_seen.pop(tab_id, None)
                 self._current_room_by_client.pop(client_token, None)
                 if hasattr(lobby, "_user_locations"):
                     lobby._user_locations.pop(client_token, None)
@@ -455,22 +457,25 @@ class RoomState(rx.SharedState):
         except Exception:
             pass
 
-        # Sync per-room message counts from lobby snapshot so unread badges stay current even when not in that room.
         self._message_counts_by_room = {room: len(msgs) for room, msgs in lobby._messages_by_room.items()}
         self._room_creator_map = {room: info.created_by for room, info in lobby._rooms.items()}
         self._known_profiles_snapshot = dict(lobby._known_profiles)
-        tab_state = await self.get_state(TabSessionState)
         tab_state.all_room_counts_json = json.dumps(self._message_counts_by_room)
 
-        # Always prune stale clients to keep online status accurate
         now_ts = datetime.datetime.utcnow().timestamp()
         await self._prune_stale_clients(now_ts)
 
-        # Presence refresh only if currently in a room.
         if not self.room_name:
             tab_state.curr_room_name = ""
             return
-        self._active_user_last_seen[client_token] = now_ts
+        self._active_user_last_seen[tab_id] = now_ts
+
+        # Self-healing: if this tab is in a room but missing from presence, re-add
+        if tab_id not in self._active_users:
+            auth = await self.get_state(AuthState)
+            if auth.user:
+                self._active_users[tab_id] = auth.user.username
+                self._active_user_profiles[tab_id] = auth.user
 
     @rx.event
     async def on_disconnect(self):
@@ -499,12 +504,13 @@ class RoomState(rx.SharedState):
         safe_token = f"room-{room_name.replace(' ', '-').replace('_', '-').lower()}"
         target_state = await self._link_to(safe_token)
         
-        target_state._active_user_last_seen.pop(client_token, None)
-        target_state._active_users.pop(client_token, None)
-        target_state._active_user_profiles.pop(client_token, None)
-        target_state._current_room_by_client.pop(client_token, None)
-        
         tab_state = await self.get_state(TabSessionState)
+        tab_id = tab_state.tab_id
+        if tab_id:
+            target_state._active_user_last_seen.pop(tab_id, None)
+            target_state._active_users.pop(tab_id, None)
+            target_state._active_user_profiles.pop(tab_id, None)
+        target_state._current_room_by_client.pop(client_token, None)
         tab_state.curr_room_name = ""
 
     @rx.event
@@ -577,9 +583,12 @@ class RoomState(rx.SharedState):
         tab_state.all_room_counts_json = json.dumps(new_room_state._message_counts_by_room)
 
         username = auth.user.username
-        new_room_state._active_users[client_token] = username
-        new_room_state._active_user_profiles[client_token] = auth.user
-        new_room_state._active_user_last_seen[client_token] = datetime.datetime.utcnow().timestamp()
+        if not tab_state.tab_id:
+            tab_state.tab_id = str(uuid.uuid4())
+        tab_id = tab_state.tab_id
+        new_room_state._active_users[tab_id] = username
+        new_room_state._active_user_profiles[tab_id] = auth.user
+        new_room_state._active_user_last_seen[tab_id] = datetime.datetime.utcnow().timestamp()
 
         # Refresh counts/presence after linking to ensure unread map is up to date immediately.
         await new_room_state.heartbeat()
@@ -590,7 +599,7 @@ class RoomState(rx.SharedState):
     async def _internal_leave_room(self, clear_tab_state: bool):
         client_token = self.router.session.client_token
         current_room = self._current_room_by_client.get(client_token, "")
-        
+
         # Always clean up global location tracking
         lobby = await self.get_state(GlobalLobbyState)
         if not lobby._linked_to:
@@ -600,19 +609,16 @@ class RoomState(rx.SharedState):
 
         if not current_room:
             return
-            
-        if client_token in self._active_users:
-            del self._active_users[client_token]
-        if client_token in self._active_user_profiles:
-            del self._active_user_profiles[client_token]
-        if client_token in self._active_user_last_seen:
-            del self._active_user_last_seen[client_token]
-        self._current_room_by_client.pop(client_token, None)
+
         tab_state = await self.get_state(TabSessionState)
+        tab_id = tab_state.tab_id
+        if tab_id:
+            self._active_users.pop(tab_id, None)
+            self._active_user_profiles.pop(tab_id, None)
+            self._active_user_last_seen.pop(tab_id, None)
+        self._current_room_by_client.pop(client_token, None)
         if clear_tab_state:
             tab_state.curr_room_name = ""
-        # Only unlink if this state instance is actually linked; avoids runtime errors on logout
-        # when session storage still has a room name but no active room link.
         if self._linked_to:
             await self._unlink()
 
@@ -625,9 +631,10 @@ class RoomState(rx.SharedState):
         message_text = form_data.get("message", "").strip()
         if not message_text:
             return
-        client_token = self.router.session.client_token
-        sender = self._active_users.get(client_token, "Unknown")
-        profile = self._active_user_profiles.get(client_token)
+        tab_state = await self.get_state(TabSessionState)
+        tab_id = tab_state.tab_id
+        sender = self._active_users.get(tab_id, "Unknown")
+        profile = self._active_user_profiles.get(tab_id)
         display_name = sender
         if profile:
             display_name = profile.nickname or profile.username
@@ -642,7 +649,6 @@ class RoomState(rx.SharedState):
         )
         self._messages.append(msg)
         self._message_counts_by_room[self.room_name] = len(self._messages)
-        tab_state = await self.get_state(TabSessionState)
         tab_state.all_room_counts_json = json.dumps(self._message_counts_by_room)
         lobby = await self.get_state(GlobalLobbyState)
         await lobby.record_message(self.room_name, msg)

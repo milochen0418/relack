@@ -398,6 +398,21 @@ def chat_dashboard() -> rx.Component:
     return rx.el.div(
         sidebar(),
         rx.cond(RoomState.in_room, chat_area(), empty_state()),
+        rx.el.button(
+            id="heartbeat-trigger",
+            on_click=RoomState.heartbeat,
+            class_name="sr-only",
+        ),
+        rx.script(
+            """
+            if (window.__relack_hb) clearInterval(window.__relack_hb);
+            window.__relack_hb = setInterval(function() {
+                var el = document.getElementById('heartbeat-trigger');
+                if (el) { el.click(); }
+                else { clearInterval(window.__relack_hb); window.__relack_hb = null; }
+            }, 3000);
+            """
+        ),
         class_name="flex h-[calc(100vh-73px)] overflow-hidden bg-gray-50/50",
         # Ensure lobby link exists so room list is populated even after reloads.
         on_mount=[GlobalLobbyState.join_lobby, RoomState.rejoin_last_room, RoomState.heartbeat, RoomState.seed_all_room_read_counts],
