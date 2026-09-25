@@ -1,5 +1,5 @@
 import reflex as rx
-from relack.states.shared_state import GlobalLobbyState, RoomState, TabSessionState
+from relack.states.shared_state import GlobalLobbyState, LocalUIState, RoomState, TabSessionState
 from relack.states.auth_state import AuthState
 from relack.models import RoomInfo, ChatMessage, UserProfile
 
@@ -155,7 +155,7 @@ def sidebar() -> rx.Component:
         ),
         create_room_modal(),
         class_name=rx.cond(
-            RoomState.is_sidebar_open,
+            LocalUIState.is_sidebar_open,
             "w-72 bg-white border-r border-gray-200 h-full flex flex-col transition-all duration-300 ease-in-out shrink-0",
             "w-0 overflow-hidden h-full flex flex-col transition-all duration-300 ease-in-out shrink-0",
         ),
@@ -282,7 +282,7 @@ def users_panel() -> rx.Component:
             class_name="flex flex-col gap-1 overflow-y-auto flex-1",
         ),
         class_name=rx.cond(
-            RoomState.is_user_list_open,
+            LocalUIState.is_user_list_open,
             "w-64 bg-white border-l border-gray-200 h-full flex flex-col p-4 transition-all duration-300 ease-in-out shrink-0",
             "w-0 overflow-hidden h-full flex flex-col p-0 border-none transition-all duration-300 ease-in-out shrink-0",
         ),
@@ -295,8 +295,8 @@ def chat_area() -> rx.Component:
             rx.el.div(
                 rx.el.button(
                     rx.icon("panel-left", class_name="h-5 w-5"),
-                    on_click=RoomState.toggle_sidebar,
-                    class_name=f"p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors {rx.cond(RoomState.is_sidebar_open, 'text-violet-600 bg-violet-50', '')}",
+                    on_click=LocalUIState.toggle_sidebar,
+                    class_name=f"p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors {rx.cond(LocalUIState.is_sidebar_open, 'text-violet-600 bg-violet-50', '')}",
                 ),
                 rx.el.div(
                     rx.el.h2(
@@ -328,8 +328,8 @@ def chat_area() -> rx.Component:
             rx.el.div(
                 rx.el.button(
                     rx.icon("users", class_name="h-5 w-5"),
-                    on_click=RoomState.toggle_user_list,
-                    class_name=f"p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors mr-2 {rx.cond(RoomState.is_user_list_open, 'text-violet-600 bg-violet-50', '')}",
+                    on_click=LocalUIState.toggle_user_list,
+                    class_name=f"p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors mr-2 {rx.cond(LocalUIState.is_user_list_open, 'text-violet-600 bg-violet-50', '')}",
                 ),
                 rx.el.button(
                     rx.icon("log-out", class_name="h-5 w-5"),

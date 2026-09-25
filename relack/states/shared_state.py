@@ -321,6 +321,21 @@ class TabSessionState(rx.State):
             self.all_room_read_counts_json = json.dumps(read_counts)
 
 
+class LocalUIState(rx.State):
+    """Per-tab UI toggles that should NOT sync across browsers/tabs."""
+
+    is_sidebar_open: bool = True
+    is_user_list_open: bool = False
+
+    @rx.event
+    def toggle_sidebar(self):
+        self.is_sidebar_open = not self.is_sidebar_open
+
+    @rx.event
+    def toggle_user_list(self):
+        self.is_user_list_open = not self.is_user_list_open
+
+
 class RoomState(rx.SharedState):
     """
     Manages the state of a specific chat room.
@@ -336,17 +351,7 @@ class RoomState(rx.SharedState):
     _room_creator_map: dict[str, str] = {}
     _known_profiles_snapshot: dict[str, UserProfile] = {}
     current_message: str = ""
-    is_sidebar_open: bool = True
-    is_user_list_open: bool = False
     STALE_WINDOW_SECONDS: int = 180
-
-    @rx.event
-    def toggle_sidebar(self):
-        self.is_sidebar_open = not self.is_sidebar_open
-
-    @rx.event
-    def toggle_user_list(self):
-        self.is_user_list_open = not self.is_user_list_open
 
     @rx.var
     def in_room(self) -> bool:
