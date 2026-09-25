@@ -401,6 +401,7 @@ def chat_dashboard() -> rx.Component:
         class_name="flex h-[calc(100vh-73px)] overflow-hidden bg-gray-50/50",
         # Ensure lobby link exists so room list is populated even after reloads.
         on_mount=[GlobalLobbyState.join_lobby, RoomState.rejoin_last_room, RoomState.heartbeat, RoomState.seed_all_room_read_counts],
+        on_unmount=RoomState.handle_leave_room,
         on_focus=RoomState.heartbeat,
         on_mouse_enter=RoomState.heartbeat,
         on_mouse_move=RoomState.heartbeat,

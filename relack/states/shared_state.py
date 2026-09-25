@@ -4,6 +4,7 @@ import datetime as dt
 from relack.models import RoomInfo, ChatMessage, UserProfile, ChatMessageLog, PermissionConfig
 from relack.states.permission_state import PermissionState
 from relack.states.auth_state import AuthState
+from relack.auth.session import get_session, parse_session_id
 import datetime
 import uuid
 import logging
@@ -351,7 +352,7 @@ class RoomState(rx.SharedState):
     _room_creator_map: dict[str, str] = {}
     _known_profiles_snapshot: dict[str, UserProfile] = {}
     current_message: str = ""
-    STALE_WINDOW_SECONDS: int = 180
+    STALE_WINDOW_SECONDS: int = 60
 
     @rx.var
     def in_room(self) -> bool:
@@ -432,10 +433,29 @@ class RoomState(rx.SharedState):
     @rx.event
     async def heartbeat(self):
         """Refresh presence for this client, sync message counts, and prune stale sessions."""
-        # Sync per-room message counts from lobby snapshot so unread badges stay current even when not in that room.
+        client_token = self.router.session.client_token
         lobby = await self.get_state(GlobalLobbyState)
         if not lobby._linked_to:
             lobby = await lobby._link_to("global-lobby")
+
+        # If the server-side session was explicitly deleted (e.g. logout from
+        # another tab), remove this client's presence immediately.  Only act
+        # when we can positively confirm deletion (session_id present but gone
+        # from the store); skip the check when the cookie is unreadable.
+        try:
+            session_id = parse_session_id(self.router.headers.cookie)
+            if session_id and not get_session(session_id):
+                self._active_users.pop(client_token, None)
+                self._active_user_profiles.pop(client_token, None)
+                self._active_user_last_seen.pop(client_token, None)
+                self._current_room_by_client.pop(client_token, None)
+                if hasattr(lobby, "_user_locations"):
+                    lobby._user_locations.pop(client_token, None)
+                return
+        except Exception:
+            pass
+
+        # Sync per-room message counts from lobby snapshot so unread badges stay current even when not in that room.
         self._message_counts_by_room = {room: len(msgs) for room, msgs in lobby._messages_by_room.items()}
         self._room_creator_map = {room: info.created_by for room, info in lobby._rooms.items()}
         self._known_profiles_snapshot = dict(lobby._known_profiles)
@@ -450,7 +470,6 @@ class RoomState(rx.SharedState):
         if not self.room_name:
             tab_state.curr_room_name = ""
             return
-        client_token = self.router.session.client_token
         self._active_user_last_seen[client_token] = now_ts
 
     @rx.event
