@@ -2,9 +2,11 @@ import reflex as rx
 from relack.pages.index import index
 from relack.pages.profile import profile
 from relack.pages.admin import admin_page
+from relack.auth.routes import auth_routes
 
 app = rx.App(
     theme=rx.theme(appearance="light"),
+    api_transformer=auth_routes,
     stylesheets=[
         "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
     ],
