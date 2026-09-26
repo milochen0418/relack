@@ -28,17 +28,40 @@ TOKEN_URI = "https://oauth2.googleapis.com/token"
 AUTH_URI = "https://accounts.google.com/o/oauth2/v2/auth"
 
 
-def _frontend_url() -> str:
+def _external_origin(request: Request) -> str | None:
+    proto = request.headers.get("x-forwarded-proto")
+    if proto:
+        host = (
+            request.headers.get("x-forwarded-host")
+            or request.headers.get("host")
+            or request.url.netloc
+        )
+        return f"{proto}://{host.split(',')[0].strip()}"
+    return None
+
+
+def _frontend_url(request: Request) -> str:
+    origin = _external_origin(request)
+    if origin:
+        return origin
     return os.environ.get("FRONTEND_URL", "http://localhost:3000")
 
 
-def _backend_url() -> str:
+def _backend_url(request: Request) -> str:
+    origin = _external_origin(request)
+    if origin:
+        return origin
     return os.environ.get("BACKEND_URL", "http://localhost:8000")
+
+
+def _is_secure(request: Request) -> bool:
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    return proto == "https"
 
 
 async def google_login(request: Request):
     state = secrets.token_urlsafe(16)
-    redirect_uri = f"{_backend_url()}/auth/google/callback"
+    redirect_uri = f"{_backend_url(request)}/auth/google/callback"
     params = urlencode({
         "client_id": GOOGLE_CLIENT_ID,
         "redirect_uri": redirect_uri,
@@ -49,9 +72,10 @@ async def google_login(request: Request):
         "prompt": "consent",
     })
     response = RedirectResponse(f"{AUTH_URI}?{params}")
+    secure = _is_secure(request)
     response.set_cookie(
         "relack_oauth_state", state,
-        httponly=True, samesite="lax", max_age=600, path="/",
+        httponly=True, secure=secure, samesite="lax", max_age=600, path="/",
     )
     return response
 
@@ -63,12 +87,12 @@ async def google_callback(request: Request):
 
     if not state or state != cookie_state:
         logging.warning("OAuth state mismatch")
-        return RedirectResponse(f"{_frontend_url()}/?auth_error=invalid_state")
+        return RedirectResponse(f"{_frontend_url(request)}/?auth_error=invalid_state")
 
     if not code:
-        return RedirectResponse(f"{_frontend_url()}/?auth_error=no_code")
+        return RedirectResponse(f"{_frontend_url(request)}/?auth_error=no_code")
 
-    redirect_uri = f"{_backend_url()}/auth/google/callback"
+    redirect_uri = f"{_backend_url(request)}/auth/google/callback"
 
     try:
         async with AsyncClient() as client:
@@ -81,15 +105,15 @@ async def google_callback(request: Request):
             })
             if token_resp.status_code != 200:
                 logging.error("Token exchange failed: %s", token_resp.text)
-                return RedirectResponse(f"{_frontend_url()}/?auth_error=token_failed")
+                return RedirectResponse(f"{_frontend_url(request)}/?auth_error=token_failed")
             token_data = token_resp.json()
     except Exception:
         logging.exception("Token exchange error")
-        return RedirectResponse(f"{_frontend_url()}/?auth_error=token_failed")
+        return RedirectResponse(f"{_frontend_url(request)}/?auth_error=token_failed")
 
     id_token_str = token_data.get("id_token")
     if not id_token_str:
-        return RedirectResponse(f"{_frontend_url()}/?auth_error=no_id_token")
+        return RedirectResponse(f"{_frontend_url(request)}/?auth_error=no_id_token")
 
     try:
         id_info = verify_oauth2_token(
@@ -100,11 +124,11 @@ async def google_callback(request: Request):
         )
     except Exception:
         logging.exception("Token verification failed")
-        return RedirectResponse(f"{_frontend_url()}/?auth_error=invalid_token")
+        return RedirectResponse(f"{_frontend_url(request)}/?auth_error=invalid_token")
 
     email = id_info.get("email")
     if not email:
-        return RedirectResponse(f"{_frontend_url()}/?auth_error=no_email")
+        return RedirectResponse(f"{_frontend_url(request)}/?auth_error=no_email")
 
     profile = UserProfile(
         username=email,
@@ -117,10 +141,11 @@ async def google_callback(request: Request):
     )
 
     session_id = create_session(profile)
-    response = RedirectResponse(f"{_frontend_url()}/")
+    secure = _is_secure(request)
+    response = RedirectResponse(f"{_frontend_url(request)}/")
     response.set_cookie(
         COOKIE_NAME, session_id,
-        httponly=True, samesite="lax", max_age=COOKIE_MAX_AGE, path="/",
+        httponly=True, secure=secure, samesite="lax", max_age=COOKIE_MAX_AGE, path="/",
     )
     response.delete_cookie("relack_oauth_state", path="/")
     return response
@@ -130,12 +155,13 @@ async def claim_session(request: Request):
     token = request.query_params.get("token", "")
     session_id = redeem_claim_token(token)
     if not session_id:
-        return RedirectResponse(f"{_frontend_url()}/?auth_error=invalid_claim")
+        return RedirectResponse(f"{_frontend_url(request)}/?auth_error=invalid_claim")
 
-    response = RedirectResponse(f"{_frontend_url()}/")
+    secure = _is_secure(request)
+    response = RedirectResponse(f"{_frontend_url(request)}/")
     response.set_cookie(
         COOKIE_NAME, session_id,
-        httponly=True, samesite="lax", max_age=COOKIE_MAX_AGE, path="/",
+        httponly=True, secure=secure, samesite="lax", max_age=COOKIE_MAX_AGE, path="/",
     )
     return response
 
@@ -145,7 +171,7 @@ async def logout(request: Request):
     if session_id:
         delete_session(session_id)
 
-    response = RedirectResponse(f"{_frontend_url()}/")
+    response = RedirectResponse(f"{_frontend_url(request)}/")
     response.delete_cookie(COOKIE_NAME, path="/")
     for legacy in ("relack_session", "relack_gtoken", "relack_grefresh"):
         response.delete_cookie(legacy, path="/")
