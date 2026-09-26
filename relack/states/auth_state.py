@@ -11,9 +11,6 @@ from relack.auth.session import (
 import datetime
 import secrets
 
-BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
-
-
 class AuthState(rx.State):
     guest_nickname: str = ""
 
@@ -22,6 +19,12 @@ class AuthState(rx.State):
 
     def _get_session_id(self) -> str:
         return parse_session_id(self.router.headers.cookie)
+
+    def _auth_base_url(self) -> str:
+        origin = self.router.page.host
+        if origin and ("localhost" in origin or "127.0.0.1" in origin):
+            return os.environ.get("BACKEND_URL", "http://localhost:8000")
+        return origin or os.environ.get("BACKEND_URL", "http://localhost:8000")
 
     @rx.var
     def user(self) -> UserProfile | None:
@@ -32,8 +35,9 @@ class AuthState(rx.State):
 
     @rx.event
     def handle_google_login(self):
+        base = self._auth_base_url()
         yield rx.call_script(
-            f"window.location.href = '{BACKEND_URL}/auth/google/login'"
+            f"window.location.href = '{base}/auth/google/login'"
         )
 
     @rx.event
@@ -51,8 +55,9 @@ class AuthState(rx.State):
         )
         session_id = create_session(profile)
         claim = create_claim_token(session_id)
+        base = self._auth_base_url()
         yield rx.call_script(
-            f"window.location.href = '{BACKEND_URL}/auth/claim?token={claim}'"
+            f"window.location.href = '{base}/auth/claim?token={claim}'"
         )
 
     @rx.event
@@ -71,6 +76,7 @@ class AuthState(rx.State):
         if session_id:
             delete_session(session_id)
 
+        base = self._auth_base_url()
         yield rx.call_script(
-            f"window.location.href = '{BACKEND_URL}/auth/logout'"
+            f"window.location.href = '{base}/auth/logout'"
         )
