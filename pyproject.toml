@@ -11,6 +11,8 @@ reflex = ">=0.8.23"
 faker = "*"
 python-dotenv = "^1.2.1"
 reflex-google-auth = "^0.2.0"
+
+[tool.poetry.group.dev.dependencies]
 playwright = "^1.57.0"
 
 [build-system]
