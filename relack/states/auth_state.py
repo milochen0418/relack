@@ -27,9 +27,11 @@ class AuthState(rx.State):
             return None
         return get_session(session_id)
 
-    @rx.var
-    def google_login_url(self) -> str:
-        return "/auth/google/login"
+    @rx.event
+    def handle_google_login(self):
+        yield rx.call_script(
+            "window.location.href = '/auth/google/login'"
+        )
 
     @rx.event
     def handle_guest_login(self):

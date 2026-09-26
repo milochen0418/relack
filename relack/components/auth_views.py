@@ -49,16 +49,14 @@ def guest_view() -> rx.Component:
 
 def google_signin_view() -> rx.Component:
     return rx.el.div(
-        rx.el.a(
-            rx.el.div(
-                rx.el.img(
-                    src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg",
-                    class_name="h-5 w-5 mr-3",
-                ),
-                rx.el.span("Sign in with Google", class_name="text-sm font-medium text-gray-700"),
-                class_name="flex items-center justify-center w-full px-4 py-2.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 transition-all shadow-sm hover:shadow-md active:scale-[0.98] cursor-pointer",
+        rx.el.div(
+            rx.el.img(
+                src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg",
+                class_name="h-5 w-5 mr-3",
             ),
-            href=AuthState.google_login_url,
+            rx.el.span("Sign in with Google", class_name="text-sm font-medium text-gray-700"),
+            class_name="flex items-center justify-center w-full px-4 py-2.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 transition-all shadow-sm hover:shadow-md active:scale-[0.98] cursor-pointer",
+            on_click=AuthState.handle_google_login,
         ),
         class_name="w-full flex justify-center",
     )
