@@ -13,6 +13,8 @@ class UserProfile(BaseModel):
     avatar_seed: str = ""
     created_at: str = ""
     token: str = ""
+    is_approved: bool = False
+    avatar_url: str = ""
 
 
 class ChatMessage(BaseModel):

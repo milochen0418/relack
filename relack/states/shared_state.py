@@ -22,6 +22,7 @@ class GlobalLobbyState(rx.SharedState):
     _user_locations: dict[str, str] = {}
     _messages_by_room: dict[str, list[ChatMessage]] = {}
     _permissions: PermissionConfig = PermissionConfig()
+    _approved_users: dict[str, bool] = {}
     export_payload: str = ""
     import_payload: str = ""
 
@@ -32,6 +33,27 @@ class GlobalLobbyState(rx.SharedState):
     @rx.var
     def all_profiles(self) -> list[UserProfile]:
         return list(self._known_profiles.values())
+
+    @rx.event
+    async def approve_user(self, email: str):
+        self._approved_users[email] = True
+        if email in self._known_profiles:
+            self._known_profiles[email].is_approved = True
+        from relack.auth.session import set_approved_status
+        set_approved_status(email, True)
+        return rx.toast(f"Approved {email}")
+
+    @rx.event
+    async def revoke_user(self, email: str):
+        self._approved_users[email] = False
+        if email in self._known_profiles:
+            self._known_profiles[email].is_approved = False
+        from relack.auth.session import set_approved_status
+        set_approved_status(email, False)
+        return rx.toast(f"Revoked {email}")
+
+    def is_user_approved(self, email: str) -> bool:
+        return self._approved_users.get(email, False)
 
     @rx.var
     def recent_message_logs(self) -> list[ChatMessageLog]:
@@ -155,6 +177,7 @@ class GlobalLobbyState(rx.SharedState):
         self._known_profiles = {}
         self._messages_by_room = {}
         self._permissions = PermissionConfig()
+        self._approved_users = {}
         room_state = await self.get_state(RoomState)
         yield RoomState.reset_room_state
         yield rx.toast("Database cleared successfully!")
@@ -170,6 +193,7 @@ class GlobalLobbyState(rx.SharedState):
                 room: [msg.dict() for msg in msgs] for room, msgs in self._messages_by_room.items()
             },
             "permissions": self._permissions.dict(),
+            "approved_users": dict(self._approved_users),
         }
 
     @rx.event
@@ -230,6 +254,12 @@ class GlobalLobbyState(rx.SharedState):
                 self._permissions = PermissionConfig(**permissions_raw)
             else:
                 self._permissions = PermissionConfig()
+            approved_raw = data.get("approved_users", {})
+            if approved_raw:
+                self._approved_users = {str(k): bool(v) for k, v in approved_raw.items()}
+                from relack.auth.session import set_approved_status
+                for email, approved in self._approved_users.items():
+                    set_approved_status(email, approved)
         except Exception:
             yield rx.toast("Import failed: schema mismatch")
             return

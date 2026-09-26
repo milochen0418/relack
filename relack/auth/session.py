@@ -39,3 +39,14 @@ def parse_session_id(cookie_header: str) -> str:
         return morsel.value if morsel else ""
     except Exception:
         return ""
+
+
+_approved_users: dict[str, bool] = {}
+
+
+def set_approved_status(email: str, approved: bool):
+    _approved_users[email] = approved
+
+
+def get_approved_status(email: str) -> bool:
+    return _approved_users.get(email, False)

@@ -2,7 +2,7 @@ import os
 import secrets
 import datetime
 import logging
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -18,7 +18,9 @@ from relack.auth.session import (
     delete_session,
     create_claim_token,
     redeem_claim_token,
+    get_session,
 )
+from relack.auth.sso import set_ddns_auth_cookie, clear_ddns_auth_cookie
 
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
@@ -59,6 +61,20 @@ def _is_secure(request: Request) -> bool:
     return proto == "https"
 
 
+def _is_safe_redirect(url: str) -> bool:
+    """Only allow redirects to *.reflex-ddns.com or localhost."""
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname or ""
+        if host in ("localhost", "127.0.0.1"):
+            return True
+        if host.endswith(".reflex-ddns.com") or host == "reflex-ddns.com":
+            return True
+    except Exception:
+        pass
+    return False
+
+
 async def google_login(request: Request):
     state = secrets.token_urlsafe(16)
     redirect_uri = f"{_backend_url(request)}/auth/google/callback"
@@ -77,6 +93,12 @@ async def google_login(request: Request):
         "relack_oauth_state", state,
         httponly=True, secure=secure, samesite="lax", max_age=600, path="/",
     )
+    sso_redirect = request.query_params.get("redirect", "")
+    if sso_redirect and _is_safe_redirect(sso_redirect):
+        response.set_cookie(
+            "relack_sso_redirect", sso_redirect,
+            httponly=True, secure=secure, samesite="lax", max_age=600, path="/",
+        )
     return response
 
 
@@ -138,16 +160,23 @@ async def google_callback(request: Request):
         avatar_seed=email,
         created_at=datetime.datetime.now().isoformat(),
         token=id_info.get("sub", ""),
+        avatar_url=id_info.get("picture", ""),
     )
 
     session_id = create_session(profile)
     secure = _is_secure(request)
-    response = RedirectResponse(f"{_frontend_url(request)}/")
+
+    sso_redirect = request.cookies.get("relack_sso_redirect", "")
+    redirect_target = sso_redirect if sso_redirect else f"{_frontend_url(request)}/"
+
+    response = RedirectResponse(redirect_target)
     response.set_cookie(
         COOKIE_NAME, session_id,
         httponly=True, secure=secure, samesite="lax", max_age=COOKIE_MAX_AGE, path="/",
     )
     response.delete_cookie("relack_oauth_state", path="/")
+    response.delete_cookie("relack_sso_redirect", path="/")
+    set_ddns_auth_cookie(response, profile, request)
     return response
 
 
@@ -163,6 +192,9 @@ async def claim_session(request: Request):
         COOKIE_NAME, session_id,
         httponly=True, secure=secure, samesite="lax", max_age=COOKIE_MAX_AGE, path="/",
     )
+    profile = get_session(session_id)
+    if profile:
+        set_ddns_auth_cookie(response, profile, request)
     return response
 
 
@@ -175,6 +207,25 @@ async def logout(request: Request):
     response.delete_cookie(COOKIE_NAME, path="/")
     for legacy in ("relack_session", "relack_gtoken", "relack_grefresh"):
         response.delete_cookie(legacy, path="/")
+    clear_ddns_auth_cookie(response, request)
+    return response
+
+
+async def sso_logout(request: Request):
+    """SSO-aware logout: clears cookies and redirects to the caller's app."""
+    session_id = request.cookies.get(COOKIE_NAME)
+    if session_id:
+        delete_session(session_id)
+
+    redirect_to = request.query_params.get("redirect", "")
+    if not redirect_to or not _is_safe_redirect(redirect_to):
+        redirect_to = _frontend_url(request) + "/"
+
+    response = RedirectResponse(redirect_to)
+    response.delete_cookie(COOKIE_NAME, path="/")
+    for legacy in ("relack_session", "relack_gtoken", "relack_grefresh"):
+        response.delete_cookie(legacy, path="/")
+    clear_ddns_auth_cookie(response, request)
     return response
 
 
@@ -183,4 +234,5 @@ auth_routes = Starlette(routes=[
     Route("/auth/google/callback", google_callback),
     Route("/auth/claim", claim_session),
     Route("/auth/logout", logout),
+    Route("/auth/sso/logout", sso_logout),
 ])

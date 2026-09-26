@@ -54,8 +54,9 @@ def users_table():
                         rx.table.column_header_cell("Nickname"),
                         rx.table.column_header_cell("Email"),
                         rx.table.column_header_cell("Is Guest"),
+                        rx.table.column_header_cell("Approved"),
                         rx.table.column_header_cell("Created At"),
-                        rx.table.column_header_cell("More"),
+                        rx.table.column_header_cell("Actions"),
                     )
                 ),
                 rx.table.body(
@@ -66,15 +67,42 @@ def users_table():
                             rx.table.cell(user.nickname),
                             rx.table.cell(user.email),
                             rx.table.cell(rx.cond(user.is_guest, "True", "False")),
+                            rx.table.cell(
+                                rx.cond(
+                                    user.is_approved,
+                                    rx.badge("Approved", color_scheme="green"),
+                                    rx.badge("Pending", color_scheme="yellow"),
+                                ),
+                            ),
                             rx.table.cell(user.created_at),
                             rx.table.cell(
-                                rx.button(
-                                    "More",
-                                    size="2",
-                                    variant="soft",
-                                    class_name="text-violet-700",
-                                    on_click=lambda _: ProfileState.open_admin_profile(user.username),
-                                )
+                                rx.el.div(
+                                    rx.cond(
+                                        user.is_approved,
+                                        rx.button(
+                                            "Revoke",
+                                            size="1",
+                                            variant="soft",
+                                            color_scheme="red",
+                                            on_click=GlobalLobbyState.revoke_user(user.email),
+                                        ),
+                                        rx.button(
+                                            "Approve",
+                                            size="1",
+                                            variant="soft",
+                                            color_scheme="green",
+                                            on_click=GlobalLobbyState.approve_user(user.email),
+                                        ),
+                                    ),
+                                    rx.button(
+                                        "More",
+                                        size="1",
+                                        variant="soft",
+                                        class_name="text-violet-700",
+                                        on_click=lambda _: ProfileState.open_admin_profile(user.username),
+                                    ),
+                                    class_name="flex items-center gap-2",
+                                ),
                             ),
                         ),
                     )
