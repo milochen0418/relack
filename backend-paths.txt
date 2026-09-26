@@ -1,0 +1,6 @@
+# Extra URL paths that should be proxied to the backend (FastAPI) port
+# instead of the frontend (Vite/static) port.
+# One path per line. Comments (#) and blank lines are ignored.
+
+# OAuth and session auth routes (mounted via api_transformer)
+/auth/
