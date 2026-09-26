@@ -1,3 +1,4 @@
+import os
 import reflex as rx
 from relack.models import UserProfile
 from relack.auth.session import (
@@ -9,6 +10,8 @@ from relack.auth.session import (
 )
 import datetime
 import secrets
+
+BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
 
 
 class AuthState(rx.State):
@@ -30,7 +33,7 @@ class AuthState(rx.State):
     @rx.event
     def handle_google_login(self):
         yield rx.call_script(
-            "window.location.href = '/auth/google/login'"
+            f"window.location.href = '{BACKEND_URL}/auth/google/login'"
         )
 
     @rx.event
@@ -49,7 +52,7 @@ class AuthState(rx.State):
         session_id = create_session(profile)
         claim = create_claim_token(session_id)
         yield rx.call_script(
-            f"window.location.href = '/auth/claim?token={claim}'"
+            f"window.location.href = '{BACKEND_URL}/auth/claim?token={claim}'"
         )
 
     @rx.event
@@ -69,5 +72,5 @@ class AuthState(rx.State):
             delete_session(session_id)
 
         yield rx.call_script(
-            "window.location.href = '/auth/logout'"
+            f"window.location.href = '{BACKEND_URL}/auth/logout'"
         )
