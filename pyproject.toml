@@ -7,7 +7,7 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.12"
-reflex = ">=0.8.23"
+reflex = "0.8.24.post1"
 faker = "*"
 python-dotenv = "^1.2.1"
 reflex-google-auth = "^0.2.0"
