@@ -1,7 +1,7 @@
 import reflex as rx
 from relack.states.shared_state import GlobalLobbyState, LocalUIState, RoomState, TabSessionState
 from relack.states.auth_state import AuthState
-from relack.models import RoomInfo, ChatMessage, UserProfile
+from relack.models import RoomInfo, ChatMessage, MessagePart, UserProfile
 
 
 class CreateRoomState(rx.State):
@@ -162,6 +162,51 @@ def sidebar() -> rx.Component:
     )
 
 
+def message_part(part: MessagePart, is_me) -> rx.Component:
+    return rx.cond(
+        part.href != "",
+        rx.el.a(
+            part.text,
+            href=part.href,
+            target="_blank",
+            rel="noopener noreferrer",
+            class_name=rx.cond(
+                is_me,
+                "underline underline-offset-2 break-all text-white hover:text-violet-100",
+                "underline underline-offset-2 break-all text-violet-600 hover:text-violet-800",
+            ),
+        ),
+        rx.el.span(part.text),
+    )
+
+
+def link_preview_card(msg: ChatMessage) -> rx.Component:
+    return rx.el.a(
+        rx.cond(
+            msg.preview_image != "",
+            rx.el.img(
+                src=msg.preview_image,
+                alt="",
+                loading="lazy",
+                class_name="w-full max-h-48 object-cover bg-gray-100",
+            ),
+        ),
+        rx.el.div(
+            rx.el.div(msg.preview_site, class_name="text-[11px] uppercase tracking-wide text-gray-400 truncate"),
+            rx.el.div(msg.preview_title, class_name="text-sm font-semibold text-gray-900 line-clamp-2"),
+            rx.cond(
+                msg.preview_description != "",
+                rx.el.div(msg.preview_description, class_name="text-xs text-gray-500 mt-0.5 line-clamp-3"),
+            ),
+            class_name="px-3 py-2",
+        ),
+        href=msg.preview_url,
+        target="_blank",
+        rel="noopener noreferrer",
+        class_name="block mt-2 w-72 max-w-full overflow-hidden rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition-colors no-underline",
+    )
+
+
 def message_bubble(msg: ChatMessage) -> rx.Component:
     is_me = (msg.sender == AuthState.user.username) | (
         msg.sender == AuthState.user.nickname
@@ -208,7 +253,21 @@ def message_bubble(msg: ChatMessage) -> rx.Component:
                             ),
                         ),
                         rx.el.div(
-                            rx.el.p(msg.content, class_name="text-sm leading-relaxed"),
+                            rx.el.p(
+                                rx.cond(
+                                    msg.parts.length() > 0,
+                                    rx.foreach(
+                                        msg.parts,
+                                        lambda part: message_part(part, is_me),
+                                    ),
+                                    msg.content,
+                                ),
+                                class_name="text-sm leading-relaxed whitespace-pre-wrap break-words",
+                            ),
+                            rx.cond(
+                                msg.preview_url != "",
+                                link_preview_card(msg),
+                            ),
                             rx.el.span(
                                 msg.timestamp,
                                 class_name=rx.cond(

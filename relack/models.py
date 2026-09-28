@@ -17,6 +17,13 @@ class UserProfile(BaseModel):
     avatar_url: str = ""
 
 
+class MessagePart(BaseModel):
+    """A run of message text; `href` is set when the run is a URL."""
+
+    text: str
+    href: str = ""
+
+
 class ChatMessage(BaseModel):
     id: str
     sender: str
@@ -24,6 +31,13 @@ class ChatMessage(BaseModel):
     content: str
     timestamp: str
     is_system: bool = False
+    parts: list[MessagePart] = []
+    # Open Graph preview of the first URL in the message (empty when none).
+    preview_url: str = ""
+    preview_title: str = ""
+    preview_description: str = ""
+    preview_image: str = ""
+    preview_site: str = ""
 
 
 class ChatMessageLog(BaseModel):

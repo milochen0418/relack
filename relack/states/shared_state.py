@@ -5,6 +5,7 @@ from relack.models import RoomInfo, ChatMessage, UserProfile, ChatMessageLog, Pe
 from relack.states.permission_state import PermissionState
 from relack.states.auth_state import AuthState
 from relack.auth.session import get_session, parse_session_id
+from relack.link_preview import fetch_preview, first_url, split_message
 import datetime
 import uuid
 import logging
@@ -669,6 +670,10 @@ class RoomState(rx.SharedState):
         if profile:
             display_name = profile.nickname or profile.username
 
+        parts = split_message(message_text)
+        url = first_url(parts)
+        preview = await fetch_preview(url) if url else None
+
         msg = ChatMessage(
             id=str(uuid.uuid4()),
             sender=sender,
@@ -676,6 +681,8 @@ class RoomState(rx.SharedState):
             content=message_text,
             timestamp=datetime.datetime.now().strftime("%H:%M"),
             is_system=False,
+            parts=parts,
+            **{f"preview_{k}": v for k, v in (preview or {}).items()},
         )
         self._messages.append(msg)
         self._message_counts_by_room[self.room_name] = len(self._messages)
