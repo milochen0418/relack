@@ -3,6 +3,13 @@ from typing import Optional
 from relack.models import UserProfile
 from relack.states.auth_state import AuthState
 from relack.states.shared_state import GlobalLobbyState
+from relack.auth.session import get_approved_status
+
+
+def _with_approval(profile: UserProfile) -> UserProfile:
+    """Return a copy of the profile with the admin approval status refreshed."""
+    approved = profile.is_approved or get_approved_status(profile.email)
+    return profile.model_copy(update={"is_approved": approved})
 
 
 class ProfileState(rx.State):
@@ -40,6 +47,7 @@ class ProfileState(rx.State):
         
         # Initialize edit fields if profile found
         if self.current_profile:
+            self.current_profile = _with_approval(self.current_profile)
             self.edited_nickname = self.current_profile.nickname
             self.edited_bio = self.current_profile.bio
             
@@ -59,7 +67,7 @@ class ProfileState(rx.State):
         lobby = await self.get_state(GlobalLobbyState)
         lobby_linked = await lobby._link_to("global-lobby")
         if username in lobby_linked._known_profiles:
-            self.current_profile = lobby_linked._known_profiles[username]
+            self.current_profile = _with_approval(lobby_linked._known_profiles[username])
             self.edited_nickname = self.current_profile.nickname
             self.edited_bio = self.current_profile.bio
 
@@ -107,7 +115,7 @@ class ProfileState(rx.State):
         auth.user_profile_json = auth.user.model_dump_json()
         
         # Update Local Profile State
-        self.current_profile = auth.user
+        self.current_profile = _with_approval(auth.user)
         
         # Update Global Lobby
         lobby = await self.get_state(GlobalLobbyState)

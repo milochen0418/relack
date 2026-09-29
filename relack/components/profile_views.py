@@ -141,6 +141,10 @@ def profile_view() -> rx.Component:
                             profile_detail_item(
                                 "Status", rx.cond(user.token, "Online", "Offline")
                             ),
+                            profile_detail_item(
+                                "Approval",
+                                rx.cond(user.is_approved, "Approved", "Pending"),
+                            ),
                             class_name="grid grid-cols-1 md:grid-cols-2 gap-4",
                         ),
                         rx.cond(
