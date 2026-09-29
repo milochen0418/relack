@@ -3,6 +3,9 @@ from relack.pages.index import index
 from relack.pages.profile import profile
 from relack.pages.admin import admin_page
 from relack.auth.routes import auth_routes
+from relack.components.profile_views import profile_view
+from relack.states.profile_state import ProfileState
+from reflex_ddns_auth.intent import intent
 
 app = rx.App(
     theme=rx.theme(appearance="light"),
@@ -18,3 +21,9 @@ app = rx.App(
 app.add_page(index, route="/", title="Relack - Reflex Real-Time Chat")
 app.add_page(profile, route="/profile/[username]", title="User Profile")
 app.add_page(admin_page, route="/admin-dashboard", title="Admin Dashboard")
+
+
+# Pages other *.reflex-ddns.com apps can open as dialogs (DDNS Intent).
+@intent(app, action="profile.view", on_open=ProfileState.open_intent, title="User Profile")
+def profile_intent() -> rx.Component:
+    return profile_view()

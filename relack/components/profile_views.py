@@ -11,6 +11,7 @@ def profile_detail_item(label: str, value: str) -> rx.Component:
 
 
 from relack.states.profile_state import ProfileState
+from reflex_ddns_auth.intent import IntentPage
 
 
 def profile_view() -> rx.Component:
@@ -22,7 +23,11 @@ def profile_view() -> rx.Component:
                 rx.el.div(
                     class_name="animate-pulse bg-gray-200 h-64 rounded-2xl max-w-2xl mx-auto w-full"
                 ),
-                class_name="min-h-[calc(100vh-80px)] p-6 bg-gray-50 flex items-center justify-center",
+                class_name=rx.cond(
+                    IntentPage.is_active,
+                    "p-4 bg-gray-50 flex items-center justify-center",
+                    "min-h-[calc(100vh-80px)] p-6 bg-gray-50 flex items-center justify-center",
+                ),
             ),
             rx.cond(
                 user,
@@ -31,14 +36,14 @@ def profile_view() -> rx.Component:
                         rx.cond(
                             ~ProfileState.is_editing,
                             rx.cond(
-                                ProfileState.viewing_in_admin_modal,
+                                ProfileState.viewing_in_admin_modal | IntentPage.is_active,
                                 rx.el.button(
                                     rx.el.div(
                                         rx.icon("x", class_name="h-4 w-4"),
                                         rx.el.span("Close", class_name="ml-2 font-medium"),
                                         class_name="flex items-center text-gray-600 hover:text-violet-600 transition-colors",
                                     ),
-                                    on_click=ProfileState.close_admin_profile,
+                                    on_click=[IntentPage.cancel, ProfileState.close_admin_profile],
                                     class_name="absolute top-4 left-4 z-10 bg-white/80 backdrop-blur px-4 py-2 rounded-full shadow-sm border border-gray-200 hover:shadow-md transition-all",
                                 ),
                                 rx.el.a(
@@ -180,5 +185,9 @@ def profile_view() -> rx.Component:
                 ),
             ),
         ),
-        class_name="min-h-[calc(100vh-80px)] p-6 bg-gray-50 flex items-center justify-center",
+        class_name=rx.cond(
+            IntentPage.is_active,
+            "p-4 bg-gray-50 flex items-center justify-center",
+            "min-h-[calc(100vh-80px)] p-6 bg-gray-50 flex items-center justify-center",
+        ),
     )

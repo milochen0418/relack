@@ -23,10 +23,18 @@ class ProfileState(rx.State):
 
     @rx.event
     async def get_profile(self):
-        self.is_loading = True
         # RouterData.page is deprecated; use RouterData.url and parse the path for the username
         path_parts = (self.router.url.path or "").strip("/").split("/")
         username = path_parts[-1] if len(path_parts) >= 2 else ""
+        await self._load_profile(username)
+
+    @rx.event
+    async def open_intent(self, params: dict):
+        """Entry point of the `profile.view` intent opened by other apps."""
+        await self._load_profile(params.get("user", ""))
+
+    async def _load_profile(self, username: str):
+        self.is_loading = True
         if not username:
             self.is_loading = False
             return

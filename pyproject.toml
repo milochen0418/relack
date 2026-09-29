@@ -12,6 +12,7 @@ faker = "*"
 python-dotenv = "^1.2.1"
 reflex-google-auth = "^0.2.0"
 PyJWT = ">=2.8"
+reflex-ddns-auth = {path = "../reflex_ddns_auth", develop = true}
 
 [tool.poetry.group.dev.dependencies]
 playwright = "^1.57.0"
