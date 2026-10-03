@@ -133,6 +133,7 @@ def rooms_table():
                         rx.table.column_header_cell("Name"),
                         rx.table.column_header_cell("Description"),
                         rx.table.column_header_cell("Created By"),
+                        rx.table.column_header_cell("Visibility"),
                     )
                 ),
                 rx.table.body(
@@ -142,6 +143,13 @@ def rooms_table():
                             rx.table.cell(room.name),
                             rx.table.cell(room.description),
                             rx.table.cell(room.created_by),
+                            rx.table.cell(
+                                rx.cond(
+                                    room.is_private,
+                                    "Private (" + room.allowed_members.join(", ") + ")",
+                                    "Public",
+                                )
+                            ),
                         ),
                     )
                 ),

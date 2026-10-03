@@ -24,12 +24,20 @@ class GlobalLobbyState(rx.SharedState):
     _messages_by_room: dict[str, list[ChatMessage]] = {}
     _permissions: PermissionConfig = PermissionConfig()
     _approved_users: dict[str, bool] = {}
+    # client_token -> username of the viewer, used to hide private rooms.
+    _viewer_by_client: dict[str, str] = {}
     export_payload: str = ""
     import_payload: str = ""
 
     @rx.var
     def room_list(self) -> list[RoomInfo]:
         return list(self._rooms.values())
+
+    @rx.var
+    def visible_room_list(self) -> list[RoomInfo]:
+        """Rooms this client's user may see (private rooms filtered out for outsiders)."""
+        viewer = self._viewer_by_client.get(self.router.session.client_token, "")
+        return [room for room in self._rooms.values() if room.can_view(viewer)]
 
     @rx.var
     def all_profiles(self) -> list[UserProfile]:
@@ -78,6 +86,12 @@ class GlobalLobbyState(rx.SharedState):
         auth = await self.get_state(AuthState)
         if auth.user:
             new_state._known_profiles[auth.user.username] = auth.user
+            # Reassign (not mutate): lobby state pickled before this var existed
+            # would otherwise write into the shared class-level default.
+            new_state._viewer_by_client = {
+                **new_state._viewer_by_client,
+                self.router.session.client_token: auth.user.username,
+            }
         if not hasattr(new_state, "_user_locations"):
             new_state._user_locations = {}
         if not new_state._rooms:
@@ -106,7 +120,13 @@ class GlobalLobbyState(rx.SharedState):
             new_state.import_payload = ""
 
     @rx.event
-    async def create_room(self, room_name: str, description: str):
+    async def create_room(
+        self,
+        room_name: str,
+        description: str,
+        is_private: bool = False,
+        allowed_members: list[str] | None = None,
+    ):
         if not room_name:
             return rx.toast("Room name required")
         auth = await self.get_state(AuthState)
@@ -114,13 +134,21 @@ class GlobalLobbyState(rx.SharedState):
             return rx.toast("You must be logged in to create a room.")
         if room_name in self._rooms:
             return rx.toast("Room already exists")
+        creator = auth.user.username
         self._rooms[room_name] = RoomInfo(
             name=room_name,
             description=description,
             participant_count=0,
-            created_by=auth.user.username,
+            created_by=creator,
+            is_private=is_private,
+            allowed_members=(
+                list(dict.fromkeys(m for m in allowed_members or [] if m and m != creator))
+                if is_private
+                else []
+            ),
         )
-        return rx.toast(f"Room '{room_name}' created!")
+        kind = "Private room" if is_private else "Room"
+        return rx.toast(f"{kind} '{room_name}' created!")
 
     @rx.event
     async def delete_room(self, room_name: str):
@@ -391,7 +419,7 @@ class RoomState(rx.SharedState):
     _messages: list[ChatMessage] = []
     _current_room_by_client: dict[str, str] = {}
     _message_counts_by_room: dict[str, int] = {}
-    _room_creator_map: dict[str, str] = {}
+    _room_info_map: dict[str, RoomInfo] = {}
     _known_profiles_snapshot: dict[str, UserProfile] = {}
     current_message: str = ""
     STALE_WINDOW_SECONDS: int = 10
@@ -445,7 +473,36 @@ class RoomState(rx.SharedState):
 
     @rx.var
     def room_creator_username(self) -> str:
-        return self._room_creator_map.get(self.room_name, "")
+        info = self._room_info_map.get(self.room_name)
+        return info.created_by if info else ""
+
+    @rx.var
+    def room_is_private(self) -> bool:
+        info = self._room_info_map.get(self.room_name)
+        return bool(info and info.is_private)
+
+    @rx.var
+    def room_allowed_members(self) -> list[UserProfile]:
+        """People who can see the current private room, creator first."""
+        info = self._room_info_map.get(self.room_name)
+        if not info or not info.is_private:
+            return []
+        return [
+            self._known_profiles_snapshot.get(username)
+            or UserProfile(username=username, is_guest=False, avatar_seed=username)
+            for username in [info.created_by, *info.allowed_members]
+        ]
+
+    async def _sync_visible_counts(self, tab_state: "TabSessionState"):
+        """Write per-room message totals to the tab, omitting private rooms it cannot see."""
+        auth = await self.get_state(AuthState)
+        username = auth.user.username if auth.user else ""
+        visible = {
+            room: count
+            for room, count in self._message_counts_by_room.items()
+            if (info := self._room_info_map.get(room)) is not None and info.can_view(username)
+        }
+        tab_state.all_room_counts_json = json.dumps(visible)
 
     @rx.var
     def room_creator_display(self) -> str:
@@ -499,9 +556,9 @@ class RoomState(rx.SharedState):
             pass
 
         self._message_counts_by_room = {room: len(msgs) for room, msgs in lobby._messages_by_room.items()}
-        self._room_creator_map = {room: info.created_by for room, info in lobby._rooms.items()}
+        self._room_info_map = dict(lobby._rooms)
         self._known_profiles_snapshot = dict(lobby._known_profiles)
-        tab_state.all_room_counts_json = json.dumps(self._message_counts_by_room)
+        await self._sync_visible_counts(tab_state)
 
         now_ts = datetime.datetime.utcnow().timestamp()
         await self._prune_stale_clients(now_ts)
@@ -573,7 +630,7 @@ class RoomState(rx.SharedState):
         self._messages = []
         self._current_room_by_client = {}
         self._message_counts_by_room = {}
-        self._room_creator_map = {}
+        self._room_info_map = {}
         self._known_profiles_snapshot = {}
         self.current_message = ""
         tab_state = await self.get_state(TabSessionState)
@@ -584,7 +641,17 @@ class RoomState(rx.SharedState):
         auth = await self.get_state(AuthState)
         if not auth.user:
             return rx.toast("Please log in to join rooms")
-            
+
+        lobby = await self.get_state(GlobalLobbyState)
+        if not lobby._linked_to:
+            lobby = await lobby._link_to("global-lobby")
+        room_info = lobby._rooms.get(room_name)
+        if room_info is not None and not room_info.can_view(auth.user.username):
+            tab_state = await self.get_state(TabSessionState)
+            if tab_state.last_room_name == room_name:
+                tab_state.last_room_name = ""
+            return rx.toast("This room is private.")
+
         # Optimization: If already in this room, just mark as read/refresh and return
         # This prevents unnecessary unlink/link cycles which can cause UI state flicker or "No room selected"
         if self.room_name == room_name:
@@ -619,9 +686,9 @@ class RoomState(rx.SharedState):
         new_room_state._message_counts_by_room = {
             room: len(msgs) for room, msgs in lobby_linked._messages_by_room.items()
         }
-        new_room_state._room_creator_map = {room: info.created_by for room, info in lobby_linked._rooms.items()}
+        new_room_state._room_info_map = dict(lobby_linked._rooms)
         new_room_state._known_profiles_snapshot = dict(lobby_linked._known_profiles)
-        tab_state.all_room_counts_json = json.dumps(new_room_state._message_counts_by_room)
+        await new_room_state._sync_visible_counts(tab_state)
 
         username = auth.user.username
         if not tab_state.tab_id:
@@ -696,7 +763,7 @@ class RoomState(rx.SharedState):
         )
         self._messages.append(msg)
         self._message_counts_by_room[self.room_name] = len(self._messages)
-        tab_state.all_room_counts_json = json.dumps(self._message_counts_by_room)
+        await self._sync_visible_counts(tab_state)
         lobby = await self.get_state(GlobalLobbyState)
         await lobby.record_message(self.room_name, msg)
         self.current_message = ""

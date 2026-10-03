@@ -4,13 +4,16 @@ from relack.states.auth_state import AuthState
 from relack.models import RoomInfo, ChatMessage, MessagePart, UserProfile
 from relack.components.people_views import people_view
 from relack.states.people_state import PeopleState
-from reflex_ddns_auth.intent import intent_host
+from reflex_ddns_auth.intent import Intent, intent_host
 
 
 class CreateRoomState(rx.State):
     name: str = ""
     description: str = ""
     is_open: bool = False
+    is_private: bool = False
+    # Members picked via the `people.pick` intent; only used when `is_private`.
+    members: list[UserProfile] = []
 
     def set_name(self, name: str):
         self.name = name
@@ -22,14 +25,45 @@ class CreateRoomState(rx.State):
         self.is_open = is_open
 
     @rx.event
+    def set_is_private(self, is_private: bool):
+        self.is_private = is_private
+
+    @rx.event
     def toggle(self):
         self.is_open = not self.is_open
         self.name = ""
         self.description = ""
+        self.is_private = False
+        self.members = []
+
+    @rx.event
+    def add_member(self, data: dict):
+        """`people.pick` result handler: append the picked member once."""
+        username = data.get("user", "")
+        if not username or any(m.username == username for m in self.members):
+            return
+        self.members.append(
+            UserProfile(
+                username=username,
+                email=data.get("email", ""),
+                nickname=data.get("nickname", ""),
+                avatar_seed=data.get("avatar_seed", "") or username,
+                is_guest=False,
+            )
+        )
+
+    @rx.event
+    def remove_member(self, username: str):
+        self.members = [m for m in self.members if m.username != username]
 
     @rx.event
     def create(self):
-        yield GlobalLobbyState.create_room(self.name, self.description)
+        yield GlobalLobbyState.create_room(
+            self.name,
+            self.description,
+            self.is_private,
+            [m.username for m in self.members],
+        )
         self.is_open = False
 
 
@@ -40,6 +74,10 @@ def room_card(room: RoomInfo) -> rx.Component:
                 rx.el.div(
                     rx.el.div(
                         rx.el.h3(room.name, class_name="font-semibold text-gray-900"),
+                        rx.cond(
+                            room.is_private,
+                            rx.icon("lock", class_name="h-3.5 w-3.5 text-gray-400"),
+                        ),
                         class_name="flex items-center gap-1",
                     ),
                     rx.cond(
@@ -77,57 +115,115 @@ def room_card(room: RoomInfo) -> rx.Component:
     )
 
 
-def create_room_modal() -> rx.Component:
-    return rx.radix.primitives.dialog.root(
-        rx.radix.primitives.dialog.portal(
-            rx.radix.primitives.dialog.overlay(
-                class_name="fixed inset-0 bg-black/50 backdrop-blur-sm z-[90]"
-            ),
-            rx.radix.primitives.dialog.content(
-                rx.radix.primitives.dialog.title(
-                    "Create New Room", class_name="text-lg font-bold mb-4"
-                ),
-                rx.el.div(
-                    rx.el.label(
-                        "Room Name",
-                        class_name="text-sm font-medium text-gray-700 mb-1 block",
-                    ),
-                    rx.el.input(
-                        placeholder="e.g. Design Team",
-                        on_change=CreateRoomState.set_name,
-                        class_name="w-full px-3 py-2 border rounded-lg mb-4",
-                    ),
-                    rx.el.label(
-                        "Description",
-                        class_name="text-sm font-medium text-gray-700 mb-1 block",
-                    ),
-                    rx.el.input(
-                        placeholder="What is this room for?",
-                        on_change=CreateRoomState.set_description,
-                        class_name="w-full px-3 py-2 border rounded-lg mb-6",
-                    ),
-                    rx.el.div(
-                        rx.radix.primitives.dialog.close(
-                            rx.el.button(
-                                "Cancel",
-                                on_click=CreateRoomState.toggle,
-                                class_name="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg mr-2",
-                            )
-                        ),
-                        rx.el.button(
-                            "Create Room",
-                            on_click=CreateRoomState.create,
-                            class_name="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700",
-                        ),
-                        class_name="flex justify-end",
-                    ),
-                    class_name="bg-white p-6 rounded-2xl w-full shadow-2xl",
-                ),
-                class_name="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl w-full max-w-sm z-[100] p-6",
-            ),
+def picked_member_chip(member: UserProfile) -> rx.Component:
+    return rx.el.div(
+        rx.image(
+            src=f"https://api.dicebear.com/9.x/notionists/svg?seed={member.avatar_seed}",
+            class_name="size-5 rounded-full bg-violet-100",
         ),
-        open=CreateRoomState.is_open,
-        on_open_change=CreateRoomState.set_is_open,
+        rx.el.span(
+            rx.cond(member.nickname != "", member.nickname, member.username),
+            class_name="text-xs font-medium text-gray-800 max-w-[140px] truncate",
+        ),
+        rx.el.button(
+            rx.icon("x", class_name="h-3 w-3"),
+            on_click=CreateRoomState.remove_member(member.username),
+            aria_label="Remove " + member.username,
+            class_name="p-0.5 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50",
+        ),
+        class_name="flex items-center gap-1.5 pl-1 pr-1.5 py-1 bg-violet-50 border border-violet-100 rounded-full",
+    )
+
+
+def private_members_picker() -> rx.Component:
+    """Who may see the private room: the creator plus members picked via `people.pick`."""
+    return rx.el.div(
+        rx.el.div(
+            rx.el.span(
+                "Members who can see this room",
+                class_name="text-sm font-medium text-gray-700",
+            ),
+            rx.el.button(
+                rx.icon("user-plus", class_name="h-4 w-4 mr-1"),
+                "Add people",
+                type="button",
+                on_click=Intent.start(
+                    "relack", "people.pick", on_result=CreateRoomState.add_member
+                ),
+                class_name="flex items-center px-2 py-1 text-xs font-medium rounded-lg bg-violet-50 text-violet-600 hover:bg-violet-100 transition-colors",
+            ),
+            class_name="flex items-center justify-between mb-2",
+        ),
+        rx.el.div(
+            rx.el.div(
+                rx.icon("crown", class_name="h-3.5 w-3.5 text-amber-500"),
+                rx.el.span("You", class_name="text-xs font-medium text-gray-800"),
+                class_name="flex items-center gap-1.5 px-2 py-1 bg-amber-50 border border-amber-100 rounded-full",
+            ),
+            rx.foreach(CreateRoomState.members, picked_member_chip),
+            class_name="flex flex-wrap gap-2 p-2 min-h-[44px] bg-gray-50 rounded-lg mb-6",
+        ),
+    )
+
+
+def create_room_modal() -> rx.Component:
+    # A plain overlay (not a Radix modal) so the `people.pick` intent dialog,
+    # which renders outside this subtree, stays clickable on top of it.
+    return rx.cond(
+        CreateRoomState.is_open,
+        rx.el.div(
+            rx.el.div(
+                rx.el.h2("Create New Room", class_name="text-lg font-bold mb-4"),
+                rx.el.label(
+                    "Room Name",
+                    class_name="text-sm font-medium text-gray-700 mb-1 block",
+                ),
+                rx.el.input(
+                    placeholder="e.g. Design Team",
+                    on_change=CreateRoomState.set_name,
+                    class_name="w-full px-3 py-2 border rounded-lg mb-4",
+                ),
+                rx.el.label(
+                    "Description",
+                    class_name="text-sm font-medium text-gray-700 mb-1 block",
+                ),
+                rx.el.input(
+                    placeholder="What is this room for?",
+                    on_change=CreateRoomState.set_description,
+                    class_name="w-full px-3 py-2 border rounded-lg mb-4",
+                ),
+                rx.el.label(
+                    rx.checkbox(
+                        checked=CreateRoomState.is_private,
+                        on_change=CreateRoomState.set_is_private,
+                        color_scheme="violet",
+                    ),
+                    rx.icon("lock", class_name="h-4 w-4 text-gray-500"),
+                    rx.el.span("Private room", class_name="text-sm font-medium text-gray-700"),
+                    class_name="flex items-center gap-2 mb-4 cursor-pointer select-none",
+                ),
+                rx.cond(CreateRoomState.is_private, private_members_picker()),
+                rx.el.div(
+                    rx.el.button(
+                        "Cancel",
+                        on_click=CreateRoomState.toggle,
+                        class_name="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg mr-2",
+                    ),
+                    rx.el.button(
+                        "Create Room",
+                        on_click=CreateRoomState.create,
+                        class_name="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700",
+                    ),
+                    class_name="flex justify-end",
+                ),
+                role="dialog",
+                aria_label="Create New Room",
+                on_click=rx.stop_propagation,
+                class_name="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-6",
+            ),
+            on_click=CreateRoomState.toggle,
+            class_name="fixed inset-0 bg-black/50 backdrop-blur-sm z-[90] flex items-center justify-center p-4",
+        ),
     )
 
 
@@ -161,7 +257,7 @@ def sidebar() -> rx.Component:
                 class_name="mb-4",
             ),
             rx.el.div(
-                rx.foreach(GlobalLobbyState.room_list, room_card),
+                rx.foreach(GlobalLobbyState.visible_room_list, room_card),
                 class_name="flex flex-col gap-2 overflow-y-auto flex-1 pr-1",
             ),
             class_name="p-4 h-full flex flex-col",
@@ -361,6 +457,63 @@ def users_panel() -> rx.Component:
     )
 
 
+def room_member_item(user: UserProfile) -> rx.Component:
+    return rx.el.div(
+        rx.image(
+            src=f"https://api.dicebear.com/9.x/notionists/svg?seed={user.avatar_seed}",
+            class_name="size-7 rounded-full bg-violet-100 shrink-0",
+        ),
+        rx.el.div(
+            rx.el.div(
+                rx.el.span(
+                    rx.cond(user.nickname != "", user.nickname, user.username),
+                    class_name="text-sm font-medium text-gray-900 truncate",
+                ),
+                rx.cond(
+                    user.username == RoomState.room_creator_username,
+                    rx.el.span(
+                        "Owner",
+                        class_name="ml-1.5 text-[10px] font-semibold uppercase text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded",
+                    ),
+                ),
+                class_name="flex items-center min-w-0",
+            ),
+            rx.cond(
+                user.email != "",
+                rx.el.span(user.email, class_name="text-xs text-gray-500 truncate"),
+            ),
+            class_name="flex flex-col ml-2 min-w-0",
+        ),
+        class_name="flex items-center p-1.5",
+    )
+
+
+def room_members_popover() -> rx.Component:
+    """Private-room badge; opens the list of people allowed to see the room."""
+    return rx.popover.root(
+        rx.popover.trigger(
+            rx.el.button(
+                rx.icon("lock", class_name="h-3.5 w-3.5 mr-1"),
+                "Private · ",
+                RoomState.room_allowed_members.length(),
+                " members",
+                class_name="flex items-center px-2 py-1 text-xs font-medium rounded-lg bg-gray-100 text-gray-600 hover:bg-violet-50 hover:text-violet-600 transition-colors",
+            ),
+        ),
+        rx.popover.content(
+            rx.el.h4(
+                "Who can see this room",
+                class_name="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2",
+            ),
+            rx.el.div(
+                rx.foreach(RoomState.room_allowed_members, room_member_item),
+                class_name="flex flex-col max-h-72 overflow-y-auto",
+            ),
+            class_name="w-72",
+        ),
+    )
+
+
 def chat_area() -> rx.Component:
     return rx.el.div(
         rx.el.div(
@@ -375,6 +528,7 @@ def chat_area() -> rx.Component:
                         RoomState.room_name,
                         class_name="text-lg font-bold text-gray-900",
                     ),
+                    rx.cond(RoomState.room_is_private, room_members_popover()),
                     rx.cond(
                         RoomState.room_creator_username != "",
                         rx.cond(

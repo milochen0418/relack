@@ -52,6 +52,25 @@ class RoomInfo(BaseModel):
     participant_count: int = 0
     description: str = ""
     created_by: str = "System"
+    # Private rooms are visible only to their creator and `allowed_members` (usernames).
+    is_private: bool = False
+    allowed_members: list[str] = []
+
+    def __setstate__(self, state):
+        # Rooms pickled (Reflex disk/redis state) before a field existed lack it;
+        # fill in the default so attribute access and serialization keep working.
+        values = state.get("__dict__", {})
+        for name, field in type(self).model_fields.items():
+            if name not in values:
+                values[name] = field.get_default(call_default_factory=True)
+        super().__setstate__(state)
+
+    def can_view(self, username: str) -> bool:
+        return (
+            not self.is_private
+            or username == self.created_by
+            or username in self.allowed_members
+        )
 
 
 class PermissionConfig(BaseModel):
