@@ -47,7 +47,7 @@ class PeopleState(rx.State):
 
     @rx.event
     async def select_member(self, username: str):
-        """Answer the caller when picking inside an intent dialog, else show the profile."""
+        """Answer the caller when picking inside an intent dialog, else open a direct message."""
         page = await self.get_state(IntentPage)
         if page.is_active:
             member = next((m for m in self.members if m.username == username), None)
@@ -61,7 +61,7 @@ class PeopleState(rx.State):
                     "avatar_seed": member.avatar_seed,
                 }
             )
-        return Intent.start("relack", "profile.view", user=username)
+        return GlobalLobbyState.open_direct_message(username)
 
     @rx.event
     def show_picked_profile(self, data: dict):

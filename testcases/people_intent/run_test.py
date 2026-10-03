@@ -3,8 +3,8 @@
 Verified (Google) members cannot log in from a test, so they are seeded
 through the admin JSON import. Then:
 
-1. In-app: sidebar People lists verified members only; clicking one opens its
-   profile through the `profile.view` intent dialog.
+1. In-app: sidebar People lists verified members only; clicking one opens a
+   direct message room titled with that member's name, where messages can be sent.
 2. In-app chain: "Pick member" opens `people.pick` in the dialog; picking a
    member closes it and opens that member's `profile.view` intent.
 3. Reload after using the in-app dialog: People still shows "Pick member"
@@ -130,13 +130,24 @@ def run():
             page.get_by_placeholder("Search people...").fill("")
             shots["people_view"] = page.screenshot()
 
-            print("Clicking a member opens its profile intent...")
+            print("Clicking a member opens a direct message...")
             page.get_by_role("button", name="Alice Wonder").click()
-            frame = page.frame_locator("#ddns-intent-frame")
-            frame.get_by_role("heading", name="Alice Wonder").wait_for(timeout=30000)
-            shots["member_profile_dialog"] = page.screenshot()
-            page.get_by_role("button", name="Close").click()
+            header = page.get_by_role("heading", name="Alice Wonder", level=2)
+            expect(header).to_be_visible(timeout=15000)
+            expect(header.locator("xpath=..").get_by_text("Direct message", exact=True)).to_be_visible()
+            expect(page.get_by_role("heading", name="Alice Wonder", level=3)).to_be_visible()
             expect(page.locator("#ddns-intent-frame")).to_have_count(0)
+            page.get_by_placeholder("Type a message...").fill("Hi Alice!")
+            page.get_by_placeholder("Type a message...").press("Enter")
+            expect(page.get_by_text("Hi Alice!")).to_be_visible(timeout=10000)
+            shots["direct_message"] = page.screenshot()
+
+            print("Clicking the same member again reuses the room...")
+            page.get_by_role("button", name="People", exact=True).click()
+            page.get_by_role("button", name="Alice Wonder").click()
+            expect(page.get_by_text("Hi Alice!")).to_be_visible(timeout=10000)
+            expect(page.get_by_role("heading", name="Alice Wonder", level=3)).to_have_count(1)
+            page.get_by_role("button", name="People", exact=True).click()
 
             print("Pick member -> people.pick dialog -> profile.view dialog...")
             page.get_by_role("button", name="Pick member").click()

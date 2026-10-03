@@ -73,10 +73,17 @@ def room_card(room: RoomInfo) -> rx.Component:
             rx.el.div(
                 rx.el.div(
                     rx.el.div(
-                        rx.el.h3(room.name, class_name="font-semibold text-gray-900"),
+                        rx.el.h3(
+                            GlobalLobbyState.room_titles[room.name],
+                            class_name="font-semibold text-gray-900",
+                        ),
                         rx.cond(
-                            room.is_private,
-                            rx.icon("lock", class_name="h-3.5 w-3.5 text-gray-400"),
+                            room.is_direct,
+                            rx.icon("message-circle", class_name="h-3.5 w-3.5 text-gray-400"),
+                            rx.cond(
+                                room.is_private,
+                                rx.icon("lock", class_name="h-3.5 w-3.5 text-gray-400"),
+                            ),
                         ),
                         class_name="flex items-center gap-1",
                     ),
@@ -525,10 +532,18 @@ def chat_area() -> rx.Component:
                 ),
                 rx.el.div(
                     rx.el.h2(
-                        RoomState.room_name,
+                        GlobalLobbyState.room_titles[RoomState.room_name],
                         class_name="text-lg font-bold text-gray-900",
                     ),
-                    rx.cond(RoomState.room_is_private, room_members_popover()),
+                    rx.cond(
+                        RoomState.room_is_direct,
+                        rx.el.span(
+                            rx.icon("message-circle", class_name="h-3.5 w-3.5 mr-1"),
+                            "Direct message",
+                            class_name="flex items-center px-2 py-1 text-xs font-medium rounded-lg bg-gray-100 text-gray-600",
+                        ),
+                        rx.cond(RoomState.room_is_private, room_members_popover()),
+                    ),
                     rx.cond(
                         RoomState.room_creator_username != "",
                         rx.cond(

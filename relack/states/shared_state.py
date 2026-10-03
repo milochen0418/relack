@@ -7,9 +7,16 @@ from relack.states.auth_state import AuthState
 from relack.auth.session import get_session, parse_session_id
 from relack.link_preview import fetch_preview, first_url, split_message
 import datetime
+import hashlib
 import uuid
 import logging
 from typing import Any
+
+
+def direct_room_name(user_a: str, user_b: str) -> str:
+    """Stable internal room name for the direct message between two users."""
+    pair = "\n".join(sorted([user_a, user_b]))
+    return "dm-" + hashlib.sha1(pair.encode()).hexdigest()[:12]
 
 
 class GlobalLobbyState(rx.SharedState):
@@ -38,6 +45,23 @@ class GlobalLobbyState(rx.SharedState):
         """Rooms this client's user may see (private rooms filtered out for outsiders)."""
         viewer = self._viewer_by_client.get(self.router.session.client_token, "")
         return [room for room in self._rooms.values() if room.can_view(viewer)]
+
+    @rx.var
+    def room_titles(self) -> dict[str, str]:
+        """Display title per room; direct messages show the other person's name."""
+        viewer = self._viewer_by_client.get(self.router.session.client_token, "")
+        titles: dict[str, str] = {}
+        for room in self._rooms.values():
+            if not room.is_direct:
+                titles[room.name] = room.name
+                continue
+            other = next(
+                (u for u in [room.created_by, *room.allowed_members] if u != viewer),
+                viewer,
+            )
+            profile = self._known_profiles.get(other)
+            titles[room.name] = (profile.nickname if profile else "") or other
+        return titles
 
     @rx.var
     def all_profiles(self) -> list[UserProfile]:
@@ -149,6 +173,30 @@ class GlobalLobbyState(rx.SharedState):
         )
         kind = "Private room" if is_private else "Room"
         return rx.toast(f"{kind} '{room_name}' created!")
+
+    @rx.event
+    async def open_direct_message(self, username: str):
+        """Open (creating on first use) the direct message room with `username`."""
+        auth = await self.get_state(AuthState)
+        if not auth.user:
+            return rx.toast("You must be logged in to send messages.")
+        me = auth.user.username
+        if not username or username == me:
+            return rx.toast("You cannot message yourself.")
+        target = self
+        if not self._linked_to:
+            target = await self._link_to("global-lobby")
+        room_name = direct_room_name(me, username)
+        if room_name not in target._rooms:
+            target._rooms[room_name] = RoomInfo(
+                name=room_name,
+                description="Direct message",
+                created_by=me,
+                is_private=True,
+                allowed_members=[username],
+                is_direct=True,
+            )
+        return [LocalUIState.show_rooms, RoomState.handle_join_room(room_name)]
 
     @rx.event
     async def delete_room(self, room_name: str):
@@ -475,6 +523,11 @@ class RoomState(rx.SharedState):
     def room_creator_username(self) -> str:
         info = self._room_info_map.get(self.room_name)
         return info.created_by if info else ""
+
+    @rx.var
+    def room_is_direct(self) -> bool:
+        info = self._room_info_map.get(self.room_name)
+        return bool(info and info.is_direct)
 
     @rx.var
     def room_is_private(self) -> bool:

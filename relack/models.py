@@ -55,6 +55,8 @@ class RoomInfo(BaseModel):
     # Private rooms are visible only to their creator and `allowed_members` (usernames).
     is_private: bool = False
     allowed_members: list[str] = []
+    # Direct message between `created_by` and the single entry of `allowed_members`.
+    is_direct: bool = False
 
     def __setstate__(self, state):
         # Rooms pickled (Reflex disk/redis state) before a field existed lack it;

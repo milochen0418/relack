@@ -22,6 +22,10 @@ def member_row(member: UserProfile) -> rx.Component:
             rx.el.span(member.email, class_name="text-xs text-gray-500 truncate"),
             class_name="flex flex-col ml-3 min-w-0 text-left",
         ),
+        rx.cond(
+            ~IntentPage.is_active,
+            rx.icon("message-circle", class_name="h-5 w-5 text-violet-500 ml-auto shrink-0"),
+        ),
         on_click=PeopleState.select_member(member.username),
         class_name="w-full flex items-center p-3 rounded-xl border border-gray-100 bg-white hover:border-violet-200 hover:shadow-sm transition-all",
     )
