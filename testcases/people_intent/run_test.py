@@ -7,7 +7,9 @@ through the admin JSON import. Then:
    profile through the `profile.view` intent dialog.
 2. In-app chain: "Pick member" opens `people.pick` in the dialog; picking a
    member closes it and opens that member's `profile.view` intent.
-3. External caller (fake host on :3999): picking a member posts a `result`
+3. Reload after using the in-app dialog: People still shows "Pick member"
+   (the same-origin iframe must not hijack the page's Reflex session).
+4. External caller (fake host on :3999): picking a member posts a `result`
    message carrying the member.
 
 The server must open relack intents on itself:
@@ -147,6 +149,17 @@ def run():
             frame.get_by_role("heading", name="Bob Builder").wait_for(timeout=30000)
             frame.get_by_text("Approval").wait_for(timeout=10000)
             shots["picked_profile_dialog"] = page.screenshot()
+            page.get_by_role("button", name="Close").click()
+            expect(page.locator("#ddns-intent-frame")).to_have_count(0)
+
+            print("After a reload, People is not stuck in picker mode...")
+            # The same-origin dialog iframe shares sessionStorage (Reflex token);
+            # the page must not resume the iframe's intent session.
+            page.reload(wait_until="domcontentloaded")
+            page.wait_for_selector(f"text={GUEST}", timeout=30000)
+            page.get_by_role("button", name="People", exact=True).click()
+            expect(page.get_by_role("heading", name="People")).to_be_visible(timeout=10000)
+            expect(page.get_by_role("button", name="Pick member")).to_be_visible()
 
             print("External caller receives the picked member as result...")
             host = context.new_page()
