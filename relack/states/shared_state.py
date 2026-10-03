@@ -359,6 +359,16 @@ class LocalUIState(rx.State):
 
     is_sidebar_open: bool = True
     is_user_list_open: bool = False
+    # Main panel of the dashboard: "rooms" (chat) or "people" (member directory).
+    main_view: str = "rooms"
+
+    @rx.event
+    def show_rooms(self):
+        self.main_view = "rooms"
+
+    @rx.event
+    def show_people(self):
+        self.main_view = "people"
 
     @rx.event
     def toggle_sidebar(self):

@@ -2,6 +2,9 @@ import reflex as rx
 from relack.states.shared_state import GlobalLobbyState, LocalUIState, RoomState, TabSessionState
 from relack.states.auth_state import AuthState
 from relack.models import RoomInfo, ChatMessage, MessagePart, UserProfile
+from relack.components.people_views import people_view
+from relack.states.people_state import PeopleState
+from reflex_ddns_auth.intent import intent_host
 
 
 class CreateRoomState(rx.State):
@@ -54,7 +57,7 @@ def room_card(room: RoomInfo) -> rx.Component:
                 ),
                 class_name="w-full",
             ),
-            on_click=lambda: RoomState.handle_join_room(room.name),
+            on_click=lambda: [LocalUIState.show_rooms, RoomState.handle_join_room(room.name)],
             class_name="w-full text-left",
         ),
         rx.cond(
@@ -131,6 +134,16 @@ def create_room_modal() -> rx.Component:
 def sidebar() -> rx.Component:
     return rx.el.aside(
         rx.el.div(
+            rx.el.button(
+                rx.icon("users", class_name="h-5 w-5 mr-2"),
+                "People",
+                on_click=[LocalUIState.show_people, PeopleState.load_members],
+                class_name=rx.cond(
+                    LocalUIState.main_view == "people",
+                    "w-full flex items-center px-3 py-2 mb-4 rounded-xl text-sm font-semibold bg-violet-50 text-violet-600",
+                    "w-full flex items-center px-3 py-2 mb-4 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors",
+                ),
+            ),
             rx.el.div(
                 rx.el.h2("Rooms", class_name="text-lg font-bold text-gray-800"),
                 rx.el.button(
@@ -456,7 +469,12 @@ def empty_state() -> rx.Component:
 def chat_dashboard() -> rx.Component:
     return rx.el.div(
         sidebar(),
-        rx.cond(RoomState.in_room, chat_area(), empty_state()),
+        rx.cond(
+            LocalUIState.main_view == "people",
+            rx.el.div(people_view(), class_name="flex-1 overflow-y-auto"),
+            rx.cond(RoomState.in_room, chat_area(), empty_state()),
+        ),
+        intent_host(),
         rx.el.button(
             id="heartbeat-trigger",
             on_click=RoomState.heartbeat,

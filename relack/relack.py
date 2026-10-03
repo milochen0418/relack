@@ -5,6 +5,8 @@ from relack.pages.admin import admin_page
 from relack.auth.routes import auth_routes
 from relack.components.profile_views import profile_view
 from relack.states.profile_state import ProfileState
+from relack.components.people_views import people_view
+from relack.states.people_state import PeopleState
 from reflex_ddns_auth.intent import intent
 
 app = rx.App(
@@ -27,3 +29,8 @@ app.add_page(admin_page, route="/admin-dashboard", title="Admin Dashboard")
 @intent(app, action="profile.view", on_open=ProfileState.open_intent, title="User Profile")
 def profile_intent() -> rx.Component:
     return profile_view()
+
+
+@intent(app, action="people.pick", on_open=PeopleState.open_intent, title="Pick a Member")
+def people_intent() -> rx.Component:
+    return people_view()
