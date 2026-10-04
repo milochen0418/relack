@@ -1,4 +1,5 @@
 import reflex as rx
+from reflex.components.react_router.dom import ReactRouterLink
 from relack.states.auth_state import AuthState
 from relack.states.shared_state import GlobalLobbyState
 from relack.states.admin_state import AdminState
@@ -44,7 +45,7 @@ def navbar() -> rx.Component:
                 rx.cond(
                     AuthState.user,
                     rx.el.div(
-                        rx.el.a(
+                        ReactRouterLink.create(
                             rx.el.div(
                                 rx.image(
                                     src=f"https://api.dicebear.com/9.x/notionists/svg?seed={AuthState.user.avatar_seed}",
@@ -84,7 +85,7 @@ def navbar() -> rx.Component:
                                 ),
                                 class_name="flex items-center gap-3 px-4 py-2 rounded-2xl bg-white border border-gray-100 hover:border-violet-200 hover:shadow-sm transition-all",
                             ),
-                            href=f"/profile/{AuthState.user.username}",
+                            to=f"/profile/{AuthState.user.username}",
                         ),
                         rx.el.div(class_name="w-px h-8 bg-gray-100 mx-4"),
                         rx.el.button(

@@ -1,4 +1,5 @@
 import reflex as rx
+from reflex.components.react_router.dom import ReactRouterLink
 from relack.states.auth_state import AuthState
 
 
@@ -46,13 +47,13 @@ def profile_view() -> rx.Component:
                                     on_click=[IntentPage.cancel, ProfileState.close_admin_profile],
                                     class_name="absolute top-4 left-4 z-10 bg-white/80 backdrop-blur px-4 py-2 rounded-full shadow-sm border border-gray-200 hover:shadow-md transition-all",
                                 ),
-                                rx.el.a(
+                                ReactRouterLink.create(
                                     rx.el.div(
                                         rx.icon("arrow-left", class_name="h-4 w-4"),
                                         rx.el.span("Exit Profile", class_name="ml-2 font-medium"),
                                         class_name="flex items-center text-gray-600 hover:text-violet-600 transition-colors",
                                     ),
-                                    href="/",
+                                    to="/",
                                     class_name="absolute top-4 left-4 z-10 bg-white/80 backdrop-blur px-4 py-2 rounded-full shadow-sm border border-gray-200 hover:shadow-md transition-all",
                                 ),
                             ),

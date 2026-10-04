@@ -3,9 +3,15 @@
 relack keeps who is in which room's call (`GlobalLobbyState._calls`) and rings
 people; the call itself runs in the call app, opened in the intent dialog:
 
-    Intent.start(CALL_APP, "call.join", room=<call id>, title=..., user=..., name=...)
+    Intent.start(None, "call.join", private={"room": <call id>}, keep_alive=True, single=True,
+                 title=..., user=..., name=...)
 
-Any app implementing `call.join` can be used by setting `RELACK_CALL_APP`.
+The call app is whichever installed app provides `call.join` (the DDNS Intent
+registry; `DDNS_INTENT_PROVIDER_CALL_JOIN` for local dev), unless
+`RELACK_CALL_APP` names one. The call id is private: anyone holding it can join
+the call, so it stays out of the iframe URL. The call dialog is keep-alive: other
+dialogs (People, profiles...) minimize it to the tray and the call goes on; it
+is single, so joining another call closes it.
 """
 
 import os
@@ -19,7 +25,7 @@ from relack.models import CallInfo
 from relack.states.auth_state import AuthState
 from relack.states.shared_state import GlobalLobbyState
 
-CALL_APP = os.environ.get("RELACK_CALL_APP", "livekit")
+CALL_APP = os.environ.get("RELACK_CALL_APP") or None
 CALL_ACTION = "call.join"
 # How long a new call rings the room's people.
 RING_SECONDS = 45
@@ -78,6 +84,10 @@ class CallState(rx.State):
         room = lobby._rooms.get(room_name)
         if room is None or not room.can_view(me):
             return rx.toast("This room is private.")
+        dialog = await self.get_state(IntentState)
+        if self.current_room == room_name and CALL_ACTION in dialog.open_actions:
+            # Already in this call (maybe minimized): bring it back rather than rejoin.
+            return Intent.show(CALL_ACTION)
 
         now = time.time()
         client_token = self.router.session.client_token
@@ -101,24 +111,29 @@ class CallState(rx.State):
         self.current_room = room_name
         self._call_id = call.call_id
         self._joined_at = now
+        title = lobby._room_title(room, me)
         return Intent.start(
             CALL_APP,
             CALL_ACTION,
             on_result=CallState.call_closed,
             on_cancel=CallState.call_closed,
-            room=call.call_id,
-            title=lobby._room_title(room, me),
+            private={"room": call.call_id},
+            keep_alive=True,
+            single=True,
+            label=f"Call · {title}",
+            title=title,
             user=me,
             name=auth.user.nickname or me,
         )
 
     @rx.event
     async def call_closed(self, data: dict):
-        """The call dialog closed (hung up or dismissed): leave the call."""
-        dialog = await self.get_state(IntentState)
-        if dialog.is_open:
-            # Another dialog replaced the call's (e.g. accepting a second call):
-            # join_call already moved us, so this is not about current_room.
+        """The call dialog closed (hung up or closed): leave the call.
+
+        Other dialogs only minimize it (keep-alive), so being replaced means
+        another call took its place (single): join_call already moved us.
+        """
+        if data.get("reason") == "replaced" and data.get("by") == CALL_ACTION:
             return
         room_name = self.current_room
         self.current_room = ""
@@ -151,7 +166,8 @@ class CallState(rx.State):
         me = ""
         if self.current_room:
             dialog = await self.get_state(IntentState)
-            if dialog.is_open or now - self._joined_at < OPENING_GRACE_SECONDS:
+            in_dialog = CALL_ACTION in dialog.open_actions  # in front or minimized
+            if in_dialog or now - self._joined_at < OPENING_GRACE_SECONDS:
                 auth = await self.get_state(AuthState)
                 me = auth.user.username if auth.user else ""
             if not me:

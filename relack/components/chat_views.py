@@ -1,11 +1,12 @@
 import reflex as rx
+from reflex.components.react_router.dom import ReactRouterLink
 from relack.states.shared_state import GlobalLobbyState, LocalUIState, RoomState, TabSessionState
 from relack.states.auth_state import AuthState
 from relack.models import RoomInfo, ChatMessage, IncomingCall, MessagePart, UserProfile
 from relack.states.call_state import CallState
 from relack.components.people_views import people_view
 from relack.states.people_state import PeopleState
-from reflex_ddns_auth.intent import Intent, intent_host
+from reflex_ddns_auth.intent import Intent
 
 
 class CreateRoomState(rx.State):
@@ -360,12 +361,12 @@ def message_bubble(msg: ChatMessage) -> rx.Component:
             rx.el.div(
                 rx.cond(
                     ~is_me,
-                    rx.el.a(
+                    ReactRouterLink.create(
                         rx.image(
                                 src=f"https://api.dicebear.com/9.x/notionists/svg?seed={avatar_seed}",
                             class_name="size-8 rounded-full bg-white border border-gray-100 shadow-sm hover:scale-105 transition-transform",
                         ),
-                        href=f"/profile/{msg.sender}",
+                        to=f"/profile/{msg.sender}",
                         class_name="mr-2 self-end mb-1",
                     ),
                 ),
@@ -423,7 +424,7 @@ def message_bubble(msg: ChatMessage) -> rx.Component:
 
 
 def user_list_item(user: UserProfile) -> rx.Component:
-    return rx.el.a(
+    return ReactRouterLink.create(
         rx.el.div(
             rx.image(
                 src=f"https://api.dicebear.com/9.x/notionists/svg?seed={user.avatar_seed}",
@@ -448,7 +449,7 @@ def user_list_item(user: UserProfile) -> rx.Component:
             ),
             class_name="flex items-center",
         ),
-        href=f"/profile/{user.username}",
+        to=f"/profile/{user.username}",
         class_name="flex items-center p-2 rounded-xl hover:bg-gray-50 transition-colors cursor-pointer",
     )
 
@@ -603,6 +604,37 @@ def incoming_calls() -> rx.Component:
     )
 
 
+_CALL_HEARTBEAT_JS = """
+if (window.__relackCallHb) clearInterval(window.__relackCallHb);
+window.__relackCallHb = setInterval(function () {
+    var el = document.getElementById('call-heartbeat-trigger');
+    if (!el) { clearInterval(window.__relackCallHb); window.__relackCallHb = null; return; }
+    // On the chat page, its own heartbeat already covers the call.
+    if (!document.getElementById('heartbeat-trigger')) el.click();
+}, 3000);
+"""
+
+
+@rx.memo
+def call_keepalive() -> rx.Component:
+    """While in a call, keep its heartbeat going on every page.
+
+    The call runs in the app-wide intent dialogs, so it survives leaving the chat
+    page (e.g. to see a profile); without heartbeats it would look abandoned.
+    """
+    return rx.cond(
+        CallState.current_room != "",
+        rx.el.button(
+            id="call-heartbeat-trigger",
+            on_click=CallState.heartbeat,
+            on_mount=rx.call_script(_CALL_HEARTBEAT_JS),
+            tab_index=-1,
+            aria_hidden="true",
+            class_name="sr-only",
+        ),
+    )
+
+
 def chat_area() -> rx.Component:
     return rx.el.div(
         rx.el.div(
@@ -634,12 +666,12 @@ def chat_area() -> rx.Component:
                                 "By " + RoomState.room_creator_display,
                                 class_name="text-xs font-medium text-gray-500",
                             ),
-                            rx.el.a(
+                            ReactRouterLink.create(
                                 rx.el.span(
                                     "By " + RoomState.room_creator_display,
                                     class_name="text-xs font-medium text-gray-500 hover:text-gray-700 hover:underline",
                                 ),
-                                href="/profile/" + RoomState.room_creator_username,
+                                to="/profile/" + RoomState.room_creator_username,
                                 class_name="text-xs text-gray-500",
                             ),
                         ),
@@ -726,7 +758,6 @@ def chat_dashboard() -> rx.Component:
             rx.el.div(people_view(), class_name="flex-1 overflow-y-auto"),
             rx.cond(RoomState.in_room, chat_area(), empty_state()),
         ),
-        intent_host(),
         incoming_calls(),
         rx.el.button(
             id="heartbeat-trigger",
