@@ -1,7 +1,15 @@
 import reflex as rx
 import json
 import datetime as dt
-from relack.models import RoomInfo, ChatMessage, UserProfile, ChatMessageLog, PermissionConfig
+from relack.models import (
+    CallInfo,
+    ChatMessage,
+    ChatMessageLog,
+    IncomingCall,
+    PermissionConfig,
+    RoomInfo,
+    UserProfile,
+)
 from relack.states.permission_state import PermissionState
 from relack.states.auth_state import AuthState
 from relack.auth.session import get_session, parse_session_id
@@ -33,6 +41,8 @@ class GlobalLobbyState(rx.SharedState):
     _approved_users: dict[str, bool] = {}
     # client_token -> username of the viewer, used to hide private rooms.
     _viewer_by_client: dict[str, str] = {}
+    # Ongoing calls by room name (see CallState). Always reassigned, never mutated.
+    _calls: dict[str, CallInfo] = {}
     export_payload: str = ""
     import_payload: str = ""
 
@@ -46,22 +56,69 @@ class GlobalLobbyState(rx.SharedState):
         viewer = self._viewer_by_client.get(self.router.session.client_token, "")
         return [room for room in self._rooms.values() if room.can_view(viewer)]
 
+    def _display_name(self, username: str) -> str:
+        profile = self._known_profiles.get(username)
+        return (profile.nickname if profile else "") or username
+
+    def _room_title(self, room: RoomInfo, viewer: str) -> str:
+        """Room name, or for a direct message the other person's name."""
+        if not room.is_direct:
+            return room.name
+        other = next(
+            (u for u in [room.created_by, *room.allowed_members] if u != viewer),
+            viewer,
+        )
+        return self._display_name(other)
+
     @rx.var
     def room_titles(self) -> dict[str, str]:
         """Display title per room; direct messages show the other person's name."""
         viewer = self._viewer_by_client.get(self.router.session.client_token, "")
-        titles: dict[str, str] = {}
-        for room in self._rooms.values():
-            if not room.is_direct:
-                titles[room.name] = room.name
+        return {room.name: self._room_title(room, viewer) for room in self._rooms.values()}
+
+    @rx.var
+    def call_counts(self) -> dict[str, int]:
+        """People in each ongoing call of a room this client's user can see."""
+        viewer = self._viewer_by_client.get(self.router.session.client_token, "")
+        return {
+            name: len(set(call.members.values()))
+            for name, call in self._calls.items()
+            if (room := self._rooms.get(name)) is not None and room.can_view(viewer)
+        }
+
+    @rx.var
+    def incoming_calls(self) -> list[IncomingCall]:
+        """Calls ringing for this client.
+
+        Private rooms and direct messages ring all their members; a public room
+        rings the people who currently have that room open.
+        """
+        client_token = self.router.session.client_token
+        viewer = self._viewer_by_client.get(client_token, "")
+        if not viewer:
+            return []
+        here = self._user_locations.get(client_token, "")
+        ringing = []
+        for call in self._calls.values():
+            room = self._rooms.get(call.room_name)
+            if (
+                not call.ringing
+                or room is None
+                or not room.can_view(viewer)
+                or viewer in call.members.values()
+                or viewer in call.responded
+                or (not room.is_private and here != room.name)
+            ):
                 continue
-            other = next(
-                (u for u in [room.created_by, *room.allowed_members] if u != viewer),
-                viewer,
+            ringing.append(
+                IncomingCall(
+                    room_name=room.name,
+                    title=self._room_title(room, viewer),
+                    caller=self._display_name(call.started_by),
+                    is_direct=room.is_direct,
+                )
             )
-            profile = self._known_profiles.get(other)
-            titles[room.name] = (profile.nickname if profile else "") or other
-        return titles
+        return ringing
 
     @rx.var
     def all_profiles(self) -> list[UserProfile]:
@@ -255,6 +312,7 @@ class GlobalLobbyState(rx.SharedState):
         self._messages_by_room = {}
         self._permissions = PermissionConfig()
         self._approved_users = {}
+        self._calls = {}
         room_state = await self.get_state(RoomState)
         yield RoomState.reset_room_state
         yield rx.toast("Database cleared successfully!")

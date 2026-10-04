@@ -19,6 +19,7 @@ Interested in how Relack is built? Check out our [Project Design and Architectur
 - **Full Data Control**: You own your data. No third-party SaaS lock-in.
 - **Pure Python**: Built entirely in Python using the Reflex framework, making it easy to customize and extend.
 - **Modern UI**: Clean and responsive interface for seamless team collaboration.
+- **Calls**: Start an audio call in any room or direct message; see [Calls](#calls).
 
 ## Screenshots
 
@@ -31,6 +32,25 @@ Relack supports anonymous guest access for quick and easy collaboration.
 A full-featured chat interface with room management and real-time messaging.
 
 ![Chat Dashboard](docs/images/chat-dashboard.png)
+
+## Calls
+
+Every room (public, private, or direct message) has a call button in its header. The call itself runs in a separate call app, opened in a dialog through the DDNS Intent `call.join`. By default that's the self-hosted [LiveKit audio chat](https://github.com/milochen0418/reflex_ddns_livekit_audio_chat) at `livekit.reflex-ddns.com`.
+
+- **Who gets rung**: everyone who can see the room for private rooms and direct messages, and the people who have it open for public rooms. A popup offers Accept / Decline for about 45 seconds. After that, a room in a call shows a green badge in the sidebar and a **Join call** button in its header.
+- **Leaving**: hanging up in the dialog or closing it takes you out of the call. The call ends when its last person leaves.
+- **Privacy**: each call gets a random id, so the call of a private room can't be guessed from its name.
+
+Settings (all optional):
+
+- `RELACK_CALL_APP`: the app that handles `call.join` (default `livekit`). Any app implementing the intent works; see the [contract](https://github.com/milochen0418/reflex_ddns_livekit_audio_chat#-calls-from-other-apps-ddns-intent-calljoin).
+- `DDNS_INTENT_URL_LIVEKIT`: where that app runs, for local development (e.g. `http://localhost:3200`).
+
+E2E suite (the call app must be running at `DDNS_INTENT_URL_LIVEKIT`):
+
+```bash
+DDNS_INTENT_URL_LIVEKIT=http://localhost:3200 poetry run ./run_test_suite.sh call_intent
+```
 
 ## Getting Started
 

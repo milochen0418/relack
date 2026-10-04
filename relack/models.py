@@ -75,6 +75,33 @@ class RoomInfo(BaseModel):
         )
 
 
+class CallInfo(BaseModel):
+    """The ongoing call of a room (at most one per room)."""
+
+    room_name: str
+    # Opaque id handed to the call app as its room; random, so a private room's
+    # call cannot be guessed from the room name.
+    call_id: str
+    started_by: str
+    started_at: float
+    # Still ringing the room's people (stops after a while, not when someone answers).
+    ringing: bool = True
+    # client_token -> username of each tab in the call, and its last heartbeat.
+    members: dict[str, str] = {}
+    last_seen: dict[str, float] = {}
+    # Usernames that answered or declined; they are not rung again for this call.
+    responded: list[str] = []
+
+
+class IncomingCall(BaseModel):
+    """A call ringing for the current viewer (what the popup shows)."""
+
+    room_name: str
+    title: str
+    caller: str
+    is_direct: bool = False
+
+
 class PermissionConfig(BaseModel):
     """Snapshot of admin permissions toggles for backup/restore."""
 

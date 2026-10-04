@@ -1,7 +1,8 @@
 import reflex as rx
 from relack.states.shared_state import GlobalLobbyState, LocalUIState, RoomState, TabSessionState
 from relack.states.auth_state import AuthState
-from relack.models import RoomInfo, ChatMessage, MessagePart, UserProfile
+from relack.models import RoomInfo, ChatMessage, IncomingCall, MessagePart, UserProfile
+from relack.states.call_state import CallState
 from relack.components.people_views import people_view
 from relack.states.people_state import PeopleState
 from reflex_ddns_auth.intent import Intent, intent_host
@@ -86,6 +87,15 @@ def room_card(room: RoomInfo) -> rx.Component:
                             ),
                         ),
                         class_name="flex items-center gap-1",
+                    ),
+                    rx.cond(
+                        GlobalLobbyState.call_counts.contains(room.name),
+                        rx.el.span(
+                            rx.icon("phone-call", class_name="h-3 w-3 mr-1"),
+                            GlobalLobbyState.call_counts[room.name],
+                            title="Call in progress",
+                            class_name="flex items-center bg-green-100 text-green-700 text-xs font-bold px-2 py-0.5 rounded-full ml-auto",
+                        ),
                     ),
                     rx.cond(
                         TabSessionState.unread_counts[room.name] > 0,
@@ -521,6 +531,78 @@ def room_members_popover() -> rx.Component:
     )
 
 
+def call_button() -> rx.Component:
+    """Start the room's call, or join it while one is in progress."""
+    count = GlobalLobbyState.call_counts.get(RoomState.room_name, 0)
+    return rx.cond(
+        count > 0,
+        rx.el.button(
+            rx.icon("phone-call", class_name="h-4 w-4 mr-1.5"),
+            "Join call · ",
+            count,
+            on_click=CallState.join_call(RoomState.room_name),
+            class_name="flex items-center px-3 py-1.5 mr-2 text-sm font-semibold rounded-lg bg-green-600 text-white hover:bg-green-700 transition-colors",
+        ),
+        rx.el.button(
+            rx.icon("phone", class_name="h-5 w-5"),
+            on_click=CallState.join_call(RoomState.room_name),
+            title="Start a call",
+            aria_label="Start a call",
+            class_name="p-2 mr-2 rounded-lg text-gray-500 hover:text-green-600 hover:bg-green-50 transition-colors",
+        ),
+    )
+
+
+def incoming_call_card(call: IncomingCall) -> rx.Component:
+    return rx.el.div(
+        rx.el.div(
+            rx.icon("phone-incoming", class_name="h-5 w-5 text-white"),
+            class_name="size-10 rounded-full bg-green-500 flex items-center justify-center shrink-0 animate-pulse",
+        ),
+        rx.el.div(
+            rx.el.span("Incoming call", class_name="text-xs font-semibold uppercase tracking-wide text-green-600"),
+            rx.el.span(
+                rx.cond(call.is_direct, call.caller, "# " + call.title),
+                class_name="text-sm font-bold text-gray-900 truncate",
+            ),
+            rx.cond(
+                ~call.is_direct,
+                rx.el.span(call.caller + " is calling", class_name="text-xs text-gray-500 truncate"),
+            ),
+            class_name="flex flex-col min-w-0 flex-1",
+        ),
+        rx.el.button(
+            rx.icon("phone-off", class_name="h-4 w-4"),
+            on_click=CallState.decline_call(call.room_name),
+            title="Decline",
+            aria_label="Decline",
+            class_name="p-2.5 rounded-full bg-red-100 text-red-600 hover:bg-red-200 transition-colors shrink-0",
+        ),
+        rx.el.button(
+            rx.icon("phone", class_name="h-4 w-4"),
+            on_click=[
+                LocalUIState.show_rooms,
+                RoomState.handle_join_room(call.room_name),
+                CallState.join_call(call.room_name),
+            ],
+            title="Accept",
+            aria_label="Accept",
+            class_name="p-2.5 rounded-full bg-green-600 text-white hover:bg-green-700 transition-colors shrink-0",
+        ),
+        role="alertdialog",
+        aria_label="Incoming call",
+        class_name="w-80 flex items-center gap-3 p-3 bg-white rounded-2xl border border-gray-100 shadow-2xl",
+    )
+
+
+def incoming_calls() -> rx.Component:
+    # Above the intent dialog (z-index 1000), so a call can be answered from inside another.
+    return rx.el.div(
+        rx.foreach(GlobalLobbyState.incoming_calls, incoming_call_card),
+        class_name="fixed bottom-6 right-6 z-[1001] flex flex-col gap-3",
+    )
+
+
 def chat_area() -> rx.Component:
     return rx.el.div(
         rx.el.div(
@@ -567,6 +649,7 @@ def chat_area() -> rx.Component:
                 class_name="flex items-center",
             ),
             rx.el.div(
+                call_button(),
                 rx.el.button(
                     rx.icon("users", class_name="h-5 w-5"),
                     on_click=LocalUIState.toggle_user_list,
@@ -644,9 +727,10 @@ def chat_dashboard() -> rx.Component:
             rx.cond(RoomState.in_room, chat_area(), empty_state()),
         ),
         intent_host(),
+        incoming_calls(),
         rx.el.button(
             id="heartbeat-trigger",
-            on_click=RoomState.heartbeat,
+            on_click=[RoomState.heartbeat, CallState.heartbeat],
             class_name="sr-only",
         ),
         rx.script(
