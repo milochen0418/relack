@@ -82,6 +82,9 @@ class CallInfo(BaseModel):
     # Opaque id handed to the call app as its room; random, so a private room's
     # call cannot be guessed from the room name.
     call_id: str
+    # The call app (provider of `call.join`) chosen by whoever started the call.
+    # Everyone joins through it: other apps can't reach this call.
+    app: str = ""
     started_by: str
     started_at: float
     # Still ringing the room's people (stops after a while, not when someone answers).
