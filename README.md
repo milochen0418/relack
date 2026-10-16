@@ -77,7 +77,7 @@ This project is managed with [Poetry](https://python-poetry.org/).
 
 ### Prerequisites
 
-- Python 3.11.x
+- Python 3.15 (`pyproject.toml` allows 3.11 – 3.15)
 - Poetry
 
 ### Installation
@@ -90,6 +90,7 @@ This project is managed with [Poetry](https://python-poetry.org/).
 
 2. Install dependencies:
    ```bash
+   poetry env use python3.15
    poetry install
    ```
 
@@ -128,20 +129,20 @@ poetry run ./reflex_rerun.sh
 
 ### Python version help (common first-run issue)
 
-If you see an error like `Current Python version (3.x) is not allowed by the project (>=3.11,<3.12)`, point Poetry at a 3.11 interpreter and retry:
+If you see an error like `Current Python version (3.x) is not allowed by the project (>=3.11,<3.16)`, point Poetry at a 3.15 interpreter and retry:
 
-macOS (Homebrew Python 3.11):
+macOS (Homebrew Python 3.15):
 
 ```bash
-brew install python@3.11
-poetry env use /opt/homebrew/bin/python3.11
+brew install python@3.15
+poetry env use /opt/homebrew/bin/python3.15
 poetry install
 ```
 
-If you already have `python3.11` on your PATH (e.g., from Xcode CLT or an existing install), you can simply run:
+If you already have `python3.15` on your PATH (e.g., from an existing install), you can simply run:
 
 ```bash
-poetry env use python3.11
+poetry env use python3.15
 poetry install
 ```
 

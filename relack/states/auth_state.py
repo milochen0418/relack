@@ -21,7 +21,7 @@ class AuthState(rx.State):
         return parse_session_id(self.router.headers.cookie)
 
     def _auth_base_url(self) -> str:
-        origin = self.router.page.host
+        origin = self.router.headers.origin
         if origin and ("localhost" in origin or "127.0.0.1" in origin):
             return os.environ.get("BACKEND_URL", "http://localhost:8000")
         return origin or os.environ.get("BACKEND_URL", "http://localhost:8000")

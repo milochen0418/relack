@@ -6,8 +6,10 @@ authors = ["Admin <admin@example.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = ">=3.11,<3.12"
-reflex = "0.8.24.post1"
+# Developed on 3.15; 3.11 stays allowed for the re_ddns App Store image (python:3.11).
+python = ">=3.11,<3.16"
+# The models (relack/models.py) are pydantic; Reflex 0.10 installs pydantic only with this extra.
+reflex = {version = "0.10.0", extras = ["pydantic"]}
 faker = "*"
 python-dotenv = "^1.2.1"
 reflex-google-auth = "^0.2.0"
