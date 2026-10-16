@@ -3,6 +3,7 @@ from relack.pages.index import index
 from relack.pages.profile import profile
 from relack.pages.admin import admin_page
 from relack.auth.routes import auth_routes
+from relack.static_pages import serve_pages_without_slash_redirect
 from relack.components.profile_views import profile_view
 from relack.states.profile_state import ProfileState
 from relack.components.people_views import people_view
@@ -11,8 +12,7 @@ from reflex_ddns_auth.intent import install_intent_host, intent
 from relack.components.chat_views import call_keepalive
 
 app = rx.App(
-    theme=rx.theme(appearance="light"),
-    api_transformer=auth_routes,
+    api_transformer=[auth_routes, serve_pages_without_slash_redirect],
     stylesheets=[
         "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
     ],
