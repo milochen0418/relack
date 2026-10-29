@@ -6,6 +6,8 @@ assets/external/
 __pycache__/
 /app/__pycache__/
 uploaded_files/
+# Relack's database when run locally (relack/db.py)
+.relack/
 
 # Mac
 .DS_Store

@@ -1,23 +1,40 @@
 import secrets
 from http.cookies import SimpleCookie
+from relack import db
 from relack.models import UserProfile
 
+# Logins are kept in the database (so they survive restarts); this is a cache.
 _sessions: dict[str, UserProfile] = {}
 _claim_tokens: dict[str, str] = {}
 
 
 def create_session(profile: UserProfile) -> str:
     session_id = secrets.token_urlsafe(32)
+    db.save_session(session_id, profile)
     _sessions[session_id] = profile
     return session_id
 
 
 def get_session(session_id: str) -> UserProfile | None:
-    return _sessions.get(session_id)
+    profile = _sessions.get(session_id)
+    if profile is None and session_id:
+        profile = db.load_session(session_id)
+        if profile is not None:
+            _sessions[session_id] = profile
+    return profile
 
 
 def delete_session(session_id: str):
     _sessions.pop(session_id, None)
+    db.delete_session(session_id)
+
+
+def update_profile(profile: UserProfile):
+    """Show an edited nickname and bio in every login of that person."""
+    db.update_session_profiles(profile)
+    for session_id, cached in list(_sessions.items()):
+        if cached.username == profile.username:
+            _sessions[session_id] = cached.model_copy(update={"nickname": profile.nickname, "bio": profile.bio})
 
 
 def create_claim_token(session_id: str) -> str:
@@ -41,12 +58,11 @@ def parse_session_id(cookie_header: str) -> str:
         return ""
 
 
-_approved_users: dict[str, bool] = {}
-
-
 def set_approved_status(email: str, approved: bool):
-    _approved_users[email] = approved
+    approved_users = dict(db.get_setting("approved_users", {}) or {})
+    approved_users[email] = approved
+    db.set_setting("approved_users", approved_users)
 
 
 def get_approved_status(email: str) -> bool:
-    return _approved_users.get(email, False)
+    return bool((db.get_setting("approved_users", {}) or {}).get(email, False))

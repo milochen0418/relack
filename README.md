@@ -20,6 +20,7 @@ Interested in how Relack is built? Check out our [Project Design and Architectur
 - **Pure Python**: Built entirely in Python using the Reflex framework, making it easy to customize and extend.
 - **Modern UI**: Clean and responsive interface for seamless team collaboration.
 - **Calls**: Start an audio call in any room or direct message; see [Calls](#calls).
+- **Messages that stay**: every room keeps its whole history, with threads, reactions, editing and deleting, Markdown formatting, files and pictures, search, @mentions and notifications; see [Messages](#messages).
 
 ## Screenshots
 
@@ -32,6 +33,31 @@ Relack supports anonymous guest access for quick and easy collaboration.
 A full-featured chat interface with room management and real-time messaging.
 
 ![Chat Dashboard](docs/images/chat-dashboard.png)
+
+## Messages
+
+- **History**: rooms, messages, people, settings and logins are kept in a SQLite database, `relack.db`, so they survive restarts. A room opens with its latest 100 messages; **Load earlier messages** goes further back. Times show in each viewer's own time zone, with a divider where the day changes.
+- **Writing**: Enter sends, Shift+Enter starts a new line (Enter never sends while an input method such as Zhuyin is still composing), and Enter inside a ` ``` ` block adds a line. Messages are Markdown: `**bold**`, `_italic_`, `~~strike~~`, `` `code` ``, ` ``` ` code blocks, `>` quotes and lists; the toolbar under the box (and Ctrl/Cmd+B, Ctrl/Cmd+I) adds the marks for you. Links show a preview as before.
+- **Reactions, threads, edit, delete**: hover a message for quick reactions, the emoji picker, **Reply in thread** (replies open in a side panel; the message shows how many replies it has), and, on your own messages, **Edit** (shows "(edited)") and **Delete**. A deleted message that has replies stays as "This message was deleted." until its last reply goes.
+- **Files**: attach files with the paperclip, paste a screenshot into the box, or drop files on the room. They wait above the box until you send. Pictures show in the message; other files as a card that downloads them. Files are stored under `uploaded_files/relack/` at unguessable addresses (anyone holding a link can open it). The limit is 200 MB per file (`RELACK_MAX_UPLOAD_MB`).
+- **Search**: the box above the room list filters rooms as you type; Enter searches messages, files and people in every room you can see. Clicking a message opens it in its room (or thread), highlighted.
+- **Mentions and notifications**: type `@` to pick someone (or `@here`, `@channel`, `@everyone` for everyone who has opened the room). Unread counts belong to the person, not the browser tab: the room list shows them (red for mentions and direct messages) and the tab title shows the total. Direct messages, mentions and replies in threads you started or replied in also bring a desktop notification and a sound; the bell above the room list turns them on or off for that browser.
+
+A guest's nickname is their identity, so it can't contain `@` (Google accounts are their email address), be "System" (owner of the default rooms) or be a member's username. Room names starting with `dm-` are kept for direct messages. Import, export and approvals need the admin passcode.
+
+Where `relack.db` lives: in the App Store, beside the app's `reflex.db` on its own volume (SQLite files must not be shared with the host); run locally, in `.relack/` (which the dev server's hot reload ignores). `RELACK_DB_PATH` sets another place. **Admin → Data Maintenance → Export Data** saves everything except the files themselves.
+
+E2E suites:
+
+```bash
+poetry run ./run_test_suite.sh chat_messages      # formatting, IME, reactions, threads, edit, delete, history
+poetry run ./run_test_suite.sh chat_notify        # @mentions, unread counts, notifications
+poetry run ./run_test_suite.sh chat_files_search  # attach, paste, drop, search
+poetry run ./run_test_suite.sh chat_persistence   # restart with Reflex's state files deleted
+poetry run ./run_test_suite.sh chat_guards        # guest names, dm- names, look-alike rooms
+```
+
+`chat_messages` replaces all data through the admin import (like `private_room` and `people_intent`), so run the suites against a test server.
 
 ## Calls
 

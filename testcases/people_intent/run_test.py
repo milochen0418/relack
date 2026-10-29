@@ -137,8 +137,8 @@ def run():
             expect(header.locator("xpath=..").get_by_text("Direct message", exact=True)).to_be_visible()
             expect(page.get_by_role("heading", name="Alice Wonder", level=3)).to_be_visible()
             expect(page.locator("#ddns-intent-frame")).to_have_count(0)
-            page.get_by_placeholder("Type a message...").fill("Hi Alice!")
-            page.get_by_placeholder("Type a message...").press("Enter")
+            page.get_by_role("textbox", name="Message", exact=True).fill("Hi Alice!")
+            page.get_by_role("textbox", name="Message", exact=True).press("Enter")
             expect(page.get_by_text("Hi Alice!")).to_be_visible(timeout=10000)
             shots["direct_message"] = page.screenshot()
 

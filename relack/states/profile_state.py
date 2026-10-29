@@ -3,7 +3,8 @@ from typing import Optional
 from relack.models import UserProfile
 from relack.states.auth_state import AuthState
 from relack.states.shared_state import GlobalLobbyState
-from relack.auth.session import get_approved_status
+from relack import db
+from relack.auth.session import get_approved_status, update_profile
 
 
 def _with_approval(profile: UserProfile) -> UserProfile:
@@ -117,18 +118,20 @@ class ProfileState(rx.State):
         if auth.user.username != self.current_profile.username:
             return rx.toast("You can only edit your own profile.")
 
-        # Update AuthState (Current User)
-        auth.user.nickname = self.edited_nickname
-        auth.user.bio = self.edited_bio
-        auth.user_profile_json = auth.user.model_dump_json()
-        
+        # Update the login(s) of the current user and the stored profile
+        profile = auth.user.model_copy(
+            update={"nickname": self.edited_nickname, "bio": self.edited_bio}
+        )
+        update_profile(profile)
+        db.save_profile(profile)
+
         # Update Local Profile State
-        self.current_profile = _with_approval(auth.user)
-        
+        self.current_profile = _with_approval(profile)
+
         # Update Global Lobby
         lobby = await self.get_state(GlobalLobbyState)
         lobby_linked = await lobby._link_to("global-lobby")
-        lobby_linked._known_profiles[auth.user.username] = auth.user
-        
+        lobby_linked._known_profiles = {**lobby_linked._known_profiles, profile.username: profile}
+
         self.is_editing = False
         return rx.toast("Profile updated successfully!")

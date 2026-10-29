@@ -299,8 +299,8 @@ def run():
             assert call_page(caller).evaluate("window.__e2eMarker") == 42, "the call page reloaded"
 
             print("Profile pages during a call: the call keeps running, never reloaded...")
-            decliner.get_by_placeholder("Type a message...").fill("Hi from Decliner")
-            decliner.get_by_placeholder("Type a message...").press("Enter")
+            decliner.get_by_role("textbox", name="Message", exact=True).fill("Hi from Decliner")
+            decliner.get_by_role("textbox", name="Message", exact=True).press("Enter")
             caller.get_by_role("button", name="Minimize").click()
             caller.get_by_role("heading", name=ROOM, level=3).click()
             expect(caller.get_by_text("Hi from Decliner")).to_be_visible(timeout=15000)

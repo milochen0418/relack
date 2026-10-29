@@ -32,6 +32,15 @@ _CODOC_HOSTS = {
 }
 _CODOC_DOC_RE = re.compile(r"^/doc/([A-Za-z0-9_-]+)/?$")
 
+# DICOM Viewer serves the SPA shell at /viewer/<id>; per-series Open Graph tags
+# (and a picture of the series) live on the backend at /_dicom_viewer/og/<id>.
+_DICOM_VIEWER_HOSTS = {
+    h.strip().lower()
+    for h in os.environ.get("RELACK_DICOM_VIEWER_HOSTS", "dicom-viewer.reflex-ddns.com").split(",")
+    if h.strip()
+}
+_DICOM_SERIES_RE = re.compile(r"^/viewer/([0-9a-f]{10})/?$")
+
 # Local dev only: allow previews of localhost / LAN URLs.
 _ALLOW_PRIVATE = os.environ.get("RELACK_PREVIEW_ALLOW_PRIVATE", "") == "1"
 
@@ -167,10 +176,15 @@ async def _is_public_host(host: str) -> bool:
 def _fetch_target(url: str) -> str:
     """Rewrite known SPA URLs to an endpoint that serves real meta tags."""
     parsed = urlparse(url)
-    if (parsed.hostname or "").lower() in _CODOC_HOSTS:
+    host = (parsed.hostname or "").lower()
+    if host in _CODOC_HOSTS:
         m = _CODOC_DOC_RE.match(parsed.path)
         if m:
             return f"{parsed.scheme}://{parsed.netloc}/__og/doc/{m.group(1)}"
+    if host in _DICOM_VIEWER_HOSTS:
+        m = _DICOM_SERIES_RE.match(parsed.path)
+        if m:
+            return f"{parsed.scheme}://{parsed.netloc}/_dicom_viewer/og/{m.group(1)}"
     return url
 
 

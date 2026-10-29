@@ -8,15 +8,17 @@
 ## Rooms & Messaging
 - Global lobby shared state with default rooms (General / Tech Talk / Random)
 - Create / delete rooms (creator-only delete); join/leave rooms; remember last room per tab
-- Room history persisted in lobby snapshot; messages capped per room (admin log)
-- Message send with display name/timestamp/system creator note; message list per room
+- Rooms, profiles, messages, settings and logins stored in SQLite (`relack/db.py`, `relack.db`); open rooms keep their latest 100 messages in shared state, older ones load per tab
+- Messages: Markdown (toolbar, Shift+Enter, IME-safe Enter), local times with day dividers, reactions, threads (side panel), edit / delete own messages
+- Files: paperclip, paste, drag and drop (`uploaded_files/relack/`), pictures inline
+- Search: rooms as you type; messages (FTS5 trigram), files and people on Enter, with jump to the message
 - **Optimized Room Joining:** Prevents UI flicker and unselected state when clicking the already active room (early return logic).
 - **Persistent Selection:** Ensures room selection remains active on UI during room switches.
 
 ## Presence & Unread
 - Per-room online user list with stale-session pruning via heartbeat/disconnect
-- Per-tab SessionStorage of last seen counts (per room) to drive unread badges
-- Heartbeat syncs per-room message totals from lobby for badge accuracy
+- Read positions per user in the database: unread and mention badges, total in the tab title
+- @mentions with autocomplete; desktop notifications and a sound for direct messages, mentions and thread replies
 - **Reliable Tab State:** Fixes regression where leaving a room accidentally cleared the session's selected room state.
 
 ## Admin & Permissions

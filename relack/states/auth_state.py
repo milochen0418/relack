@@ -1,5 +1,7 @@
 import os
 import reflex as rx
+from relack import db
+from relack.formatting import mention_href
 from relack.models import UserProfile
 from relack.auth.session import (
     create_session,
@@ -33,6 +35,12 @@ class AuthState(rx.State):
             return None
         return get_session(session_id)
 
+    @rx.var
+    def mention_href(self) -> str:
+        """Link target of mentions of the current user (they are highlighted)."""
+        user = self.user
+        return mention_href(user.username) if user else ""
+
     @rx.event
     def handle_google_login(self):
         base = self._auth_base_url()
@@ -45,6 +53,13 @@ class AuthState(rx.State):
         nickname = self.guest_nickname.strip()
         if not nickname:
             return rx.toast("Please enter a nickname")
+        # A guest's nickname is their username: it must not be a member's
+        # (Google accounts are their email address) or the default rooms' owner.
+        if "@" in nickname:
+            return rx.toast("Guest nicknames can't contain @.")
+        existing = db.load_profiles().get(nickname)
+        if nickname.lower() == "system" or (existing is not None and not existing.is_guest):
+            return rx.toast("That name is taken. Please choose another nickname.")
 
         profile = UserProfile(
             username=nickname,

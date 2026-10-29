@@ -1,12 +1,13 @@
 import reflex as rx
+from relack import db
 from relack.models import PermissionConfig
 
 
 class PermissionState(rx.State):
     """Local admin-only permissions configuration (UI scaffold).
 
-    Note: These toggles are stored client-side only until wiring is added
-    to enforce them in the rest of the app.
+    Note: These toggles are saved (relack.db) but not yet enforced in the
+    rest of the app.
     """
 
     google_requires_approval: bool = True
@@ -35,6 +36,7 @@ class PermissionState(rx.State):
 
         lobby = await self.get_state(GlobalLobbyState)
         lobby._permissions = self._to_config()
+        db.set_setting("permissions", lobby._permissions.model_dump())
 
     async def _set_from_config(self, config: PermissionConfig):
         self.google_requires_approval = config.google_requires_approval

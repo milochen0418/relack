@@ -5,6 +5,7 @@ from relack.states.profile_state import ProfileState
 from relack.states.permission_state import PermissionState
 from relack.components.profile_views import profile_view
 from relack.components.navbar import navbar
+from relack.components.clock import local_datetime
 
 def login_panel():
     return rx.el.div(
@@ -61,7 +62,7 @@ def users_table():
                 ),
                 rx.table.body(
                     rx.foreach(
-                        GlobalLobbyState.all_profiles,
+                        AdminState.profiles,
                         lambda user: rx.table.row(
                             rx.table.cell(user.username),
                             rx.table.cell(user.nickname),
@@ -138,7 +139,7 @@ def rooms_table():
                 ),
                 rx.table.body(
                     rx.foreach(
-                        GlobalLobbyState.room_list,
+                        AdminState.rooms,
                         lambda room: rx.table.row(
                             rx.table.cell(room.name),
                             rx.table.cell(room.description),
@@ -178,12 +179,15 @@ def messages_table():
                 ),
                 rx.table.body(
                     rx.foreach(
-                        GlobalLobbyState.recent_message_logs,
+                        AdminState.message_logs,
                         lambda log: rx.table.row(
-                            rx.table.cell(log.room_name),
+                            rx.table.cell(GlobalLobbyState.room_titles[log.room_name]),
                             rx.table.cell(log.message.sender),
-                            rx.table.cell(log.message.content),
-                            rx.table.cell(log.message.timestamp),
+                            rx.table.cell(
+                                rx.cond(log.message.parent_id != "", "↳ ", ""),
+                                log.message.content,
+                            ),
+                            rx.table.cell(local_datetime(log.message.created_at, log.message.timestamp)),
                             rx.table.cell(rx.cond(log.message.is_system, "System", "User")),
                         ),
                     )
@@ -243,7 +247,7 @@ def data_maintenance_card():
                         class_name="flex items-center gap-3",
                     ),
                     rx.text_area(
-                        value=GlobalLobbyState.export_payload,
+                        value=AdminState.export_payload,
                         read_only=True,
                         rows="8",
                         class_name="w-full font-mono text-sm bg-gray-50 border border-gray-200 rounded-lg p-3",
@@ -252,7 +256,7 @@ def data_maintenance_card():
                     rx.el.div(
                         rx.button(
                             "Copy",
-                            on_click=rx.set_clipboard(GlobalLobbyState.export_payload),
+                            on_click=rx.set_clipboard(AdminState.export_payload),
                             class_name="px-3 py-2 bg-gray-800 hover:bg-black text-white rounded-lg text-sm font-medium",
                         ),
                         class_name="flex justify-end",
@@ -269,8 +273,8 @@ def data_maintenance_card():
                         class_name="text-sm text-gray-500",
                     ),
                     rx.text_area(
-                        value=GlobalLobbyState.import_payload,
-                        on_change=GlobalLobbyState.set_import_payload,
+                        value=AdminState.import_payload,
+                        on_change=AdminState.set_import_payload,
                         rows="8",
                         class_name="w-full font-mono text-sm bg-white border border-gray-200 rounded-lg p-3",
                         placeholder="Paste exported JSON here",
@@ -278,7 +282,7 @@ def data_maintenance_card():
                     rx.el.div(
                         rx.el.button(
                             "Import Data",
-                            on_click=lambda: GlobalLobbyState.import_data(GlobalLobbyState.import_payload),
+                            on_click=lambda: GlobalLobbyState.import_data(AdminState.import_payload),
                             class_name="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors shadow-sm",
                         ),
                         class_name="flex justify-end",
@@ -496,9 +500,21 @@ def admin_dashboard():
             rx.tabs.root(
                 rx.el.div(
                     rx.tabs.list(
-                        rx.tabs.trigger("Users", value="users", on_click=AdminState.close_settings_menu),
-                        rx.tabs.trigger("Rooms", value="rooms", on_click=AdminState.close_settings_menu),
-                        rx.tabs.trigger("Messages", value="messages", on_click=AdminState.close_settings_menu),
+                        rx.tabs.trigger(
+                            "Users",
+                            value="users",
+                            on_click=[AdminState.close_settings_menu, AdminState.load_users_and_rooms],
+                        ),
+                        rx.tabs.trigger(
+                            "Rooms",
+                            value="rooms",
+                            on_click=[AdminState.close_settings_menu, AdminState.load_users_and_rooms],
+                        ),
+                        rx.tabs.trigger(
+                            "Messages",
+                            value="messages",
+                            on_click=[AdminState.close_settings_menu, AdminState.load_messages],
+                        ),
                         rx.tabs.trigger(
                             rx.el.div(
                                 rx.el.span("Settings", class_name="mr-1"),

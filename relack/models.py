@@ -24,12 +24,35 @@ class MessagePart(BaseModel):
     href: str = ""
 
 
+class Attachment(BaseModel):
+    """A file sent with a message, stored under the upload dir at `path`."""
+
+    id: str
+    name: str
+    path: str
+    mime: str = ""
+    size: int = 0
+    size_label: str = ""
+    is_image: bool = False
+
+
+class Reaction(BaseModel):
+    """One emoji on a message: who reacted with it (`names` is the tooltip)."""
+
+    emoji: str
+    count: int = 0
+    users: list[str] = []
+    names: str = ""
+
+
 class ChatMessage(BaseModel):
     id: str
     sender: str
     display_name: str = ""
+    # As stored: mentions are `<@username>` / `<!here>` tokens (see relack.formatting).
     content: str
-    timestamp: str
+    # "HH:MM" of messages imported from before `created_at` existed.
+    timestamp: str = ""
     is_system: bool = False
     parts: list[MessagePart] = []
     # Open Graph preview of the first URL in the message (empty when none).
@@ -38,6 +61,53 @@ class ChatMessage(BaseModel):
     preview_description: str = ""
     preview_image: str = ""
     preview_site: str = ""
+    seq: int = 0
+    room: str = ""
+    # Unix time (UTC); the browser shows it in its own time zone.
+    created_at: float = 0.0
+    edited: bool = False
+    # Kept (as "This message was deleted.") only while it still has thread replies.
+    deleted: bool = False
+    # Thread root this message replies to; "" for messages in the room itself.
+    parent_id: str = ""
+    # Markdown shown in the bubble, mentions turned into `#mention-` links.
+    render: str = ""
+    avatar_seed: str = ""
+    mentions: list[str] = []
+    attachments: list[Attachment] = []
+    reactions: list[Reaction] = []
+    reply_count: int = 0
+    last_reply_at: float = 0.0
+    # Avatar seeds of the latest people who replied in the thread.
+    reply_seeds: list[str] = []
+
+
+class SearchHit(BaseModel):
+    """A message found by search, with the matching words split out for highlighting."""
+
+    message_id: str
+    room: str
+    room_title: str
+    parent_id: str = ""
+    sender: str
+    display_name: str
+    avatar_seed: str = ""
+    created_at: float = 0.0
+    before: str = ""
+    match: str = ""
+    after: str = ""
+
+
+class FileHit(BaseModel):
+    """A file found by search."""
+
+    file: Attachment
+    message_id: str
+    room: str
+    room_title: str
+    parent_id: str = ""
+    uploader: str
+    created_at: float = 0.0
 
 
 class ChatMessageLog(BaseModel):

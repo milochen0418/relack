@@ -1,10 +1,13 @@
 import reflex as rx
 import json
 import datetime as dt
+from relack import db
+from relack.emoji import EMOJI
+from relack.formatting import plain_text, resolve_mentions
 from relack.models import (
+    Attachment,
     CallInfo,
     ChatMessage,
-    ChatMessageLog,
     IncomingCall,
     PermissionConfig,
     RoomInfo,
@@ -12,13 +15,27 @@ from relack.models import (
 )
 from relack.states.permission_state import PermissionState
 from relack.states.auth_state import AuthState
-from relack.auth.session import get_session, parse_session_id
+from relack.auth.session import get_session, parse_session_id, set_approved_status
 from relack.link_preview import fetch_preview, first_url, split_message
 import datetime
 import hashlib
+import time
 import uuid
-import logging
 from typing import Any
+
+# Room messages an open room keeps in memory (older ones load on request)...
+WINDOW = 100
+# ...cut back to WINDOW once they pass this.
+TRIM_AT = 160
+# Threads an open room keeps loaded for whoever has them open.
+MAX_OPEN_THREADS = 30
+# Longest message accepted (Slack: 40,000).
+MAX_MESSAGE_CHARS = 20000
+DEFAULT_ROOMS = (
+    ("General", "The main hangout spot"),
+    ("Tech Talk", "Discussing the latest tech"),
+    ("Random", "Anything goes!"),
+)
 
 
 def direct_room_name(user_a: str, user_b: str) -> str:
@@ -27,28 +44,49 @@ def direct_room_name(user_a: str, user_b: str) -> str:
     return "dm-" + hashlib.sha1(pair.encode()).hexdigest()[:12]
 
 
+def _default_rooms() -> list[RoomInfo]:
+    return [RoomInfo(name=name, description=desc, participant_count=0) for name, desc in DEFAULT_ROOMS]
+
+
+def _room_token(room_name: str) -> str:
+    # From the exact name: "Plans" and "plans" are different rooms with different states.
+    return "room-" + hashlib.sha1(room_name.encode()).hexdigest()[:20]
+
+
+def _too_long(text: str):
+    if len(text) > MAX_MESSAGE_CHARS:
+        return rx.toast.error(f"Messages can be up to {MAX_MESSAGE_CHARS:,} characters.")
+    return None
+
+
+async def _is_admin(state: rx.State) -> bool:
+    from relack.states.admin_state import AdminState  # noqa: WPS433
+
+    return bool((await state.get_state(AdminState)).is_authenticated)
+
+
 class GlobalLobbyState(rx.SharedState):
     """
     Manages the global list of rooms and active user counts.
     All users link to this with a common token 'lobby' to see the directory.
+
+    Rooms, profiles, permissions and approvals are kept in relack.db; this
+    state mirrors them for the open tabs.
     """
 
     _rooms: dict[str, RoomInfo] = {}
     _known_profiles: dict[str, UserProfile] = {}
     _user_locations: dict[str, str] = {}
-    _messages_by_room: dict[str, list[ChatMessage]] = {}
     _permissions: PermissionConfig = PermissionConfig()
     _approved_users: dict[str, bool] = {}
     # client_token -> username of the viewer, used to hide private rooms.
     _viewer_by_client: dict[str, str] = {}
     # Ongoing calls by room name (see CallState). Always reassigned, never mutated.
     _calls: dict[str, CallInfo] = {}
-    export_payload: str = ""
-    import_payload: str = ""
-
-    @rx.var
-    def room_list(self) -> list[RoomInfo]:
-        return list(self._rooms.values())
+    # Whether the fields above were loaded from relack.db.
+    _db_ready: bool = False
+    # Bumped on every new message, so open tabs refresh unread counts right away.
+    activity: int = 0
 
     @rx.var
     def visible_room_list(self) -> list[RoomInfo]:
@@ -56,25 +94,23 @@ class GlobalLobbyState(rx.SharedState):
         viewer = self._viewer_by_client.get(self.router.session.client_token, "")
         return [room for room in self._rooms.values() if room.can_view(viewer)]
 
+    def _names(self) -> dict[str, str]:
+        return {u: (p.nickname or u) for u, p in self._known_profiles.items()}
+
     def _display_name(self, username: str) -> str:
         profile = self._known_profiles.get(username)
         return (profile.nickname if profile else "") or username
 
     def _room_title(self, room: RoomInfo, viewer: str) -> str:
         """Room name, or for a direct message the other person's name."""
-        if not room.is_direct:
-            return room.name
-        other = next(
-            (u for u in [room.created_by, *room.allowed_members] if u != viewer),
-            viewer,
-        )
-        return self._display_name(other)
+        return db.room_title(room, viewer, self._names())
 
     @rx.var
     def room_titles(self) -> dict[str, str]:
         """Display title per room; direct messages show the other person's name."""
         viewer = self._viewer_by_client.get(self.router.session.client_token, "")
-        return {room.name: self._room_title(room, viewer) for room in self._rooms.values()}
+        names = self._names()
+        return {room.name: db.room_title(room, viewer, names) for room in self._rooms.values()}
 
     @rx.var
     def call_counts(self) -> dict[str, int]:
@@ -120,53 +156,67 @@ class GlobalLobbyState(rx.SharedState):
             )
         return ringing
 
-    @rx.var
-    def all_profiles(self) -> list[UserProfile]:
-        return list(self._known_profiles.values())
+    def _load_db(self):
+        """Fill this shared state from relack.db (once per state)."""
+        if self._db_ready:
+            return
+        if not db.load_rooms():
+            for room in _default_rooms():
+                db.save_room(room)
+        self._rooms = db.load_rooms()
+        self._known_profiles = db.load_profiles()
+        permissions = db.get_setting("permissions")
+        self._permissions = PermissionConfig(**permissions) if permissions else PermissionConfig()
+        self._approved_users = dict(db.get_setting("approved_users", {}) or {})
+        self._db_ready = True
+
+    def _reload_db(self):
+        """After relack.db was replaced (import, clear): drop what this state held."""
+        self._rooms = {}
+        self._known_profiles = {}
+        self._db_ready = False
+        self._load_db()
 
     @rx.event
     async def approve_user(self, email: str):
-        self._approved_users[email] = True
-        if email in self._known_profiles:
-            self._known_profiles[email].is_approved = True
-        from relack.auth.session import set_approved_status
-        set_approved_status(email, True)
+        if not await _is_admin(self):
+            return rx.toast("Admin privileges required.")
+        self._set_approved(email, True)
+        await self._admin_after_change()
         return rx.toast(f"Approved {email}")
 
     @rx.event
     async def revoke_user(self, email: str):
-        self._approved_users[email] = False
-        if email in self._known_profiles:
-            self._known_profiles[email].is_approved = False
-        from relack.auth.session import set_approved_status
-        set_approved_status(email, False)
+        if not await _is_admin(self):
+            return rx.toast("Admin privileges required.")
+        self._set_approved(email, False)
+        await self._admin_after_change()
         return rx.toast(f"Revoked {email}")
+
+    def _set_approved(self, email: str, approved: bool):
+        self._approved_users = {**self._approved_users, email: approved}
+        set_approved_status(email, approved)
+        if email in self._known_profiles:
+            profile = self._known_profiles[email].model_copy(update={"is_approved": approved})
+            db.save_profile(profile)
+            self._known_profiles = {**self._known_profiles, email: profile}
 
     def is_user_approved(self, email: str) -> bool:
         return self._approved_users.get(email, False)
-
-    @rx.var
-    def recent_message_logs(self) -> list[ChatMessageLog]:
-        """Flatten recent messages for admin viewing (capped per room)."""
-
-        logs: list[ChatMessageLog] = []
-        for room_name, messages in self._messages_by_room.items():
-            for msg in messages:
-                logs.append(ChatMessageLog(room_name=room_name, message=msg))
-        # Keep the most recent 200 entries overall to avoid huge tables
-        return logs[-200:]
-
-    @rx.var
-    def has_export_payload(self) -> bool:
-        return bool(self.export_payload)
 
     @rx.event
     async def join_lobby(self):
         """Connects the user to the global lobby to receive room updates."""
         new_state = await self._link_to("global-lobby")
+        new_state._load_db()
         auth = await self.get_state(AuthState)
         if auth.user:
-            new_state._known_profiles[auth.user.username] = auth.user
+            profile = auth.user.model_copy(
+                update={"is_approved": new_state._approved_users.get(auth.user.email, auth.user.is_approved)}
+            )
+            if new_state._known_profiles.get(profile.username) != profile:
+                db.save_profile(profile)
+                new_state._known_profiles = {**new_state._known_profiles, profile.username: profile}
             # Reassign (not mutate): lobby state pickled before this var existed
             # would otherwise write into the shared class-level default.
             new_state._viewer_by_client = {
@@ -175,30 +225,6 @@ class GlobalLobbyState(rx.SharedState):
             }
         if not hasattr(new_state, "_user_locations"):
             new_state._user_locations = {}
-        if not new_state._rooms:
-            new_state._rooms = {
-                "General": RoomInfo(
-                    name="General",
-                    description="The main hangout spot",
-                    participant_count=0,
-                ),
-                "Tech Talk": RoomInfo(
-                    name="Tech Talk",
-                    description="Discussing the latest tech",
-                    participant_count=0,
-                ),
-                "Random": RoomInfo(
-                    name="Random", description="Anything goes!", participant_count=0
-                ),
-            }
-        if not new_state._messages_by_room:
-            new_state._messages_by_room = {}
-        if not new_state._permissions:
-            new_state._permissions = PermissionConfig()
-        if not new_state.export_payload:
-            new_state.export_payload = ""
-        if not new_state.import_payload:
-            new_state.import_payload = ""
 
     @rx.event
     async def create_room(
@@ -208,15 +234,19 @@ class GlobalLobbyState(rx.SharedState):
         is_private: bool = False,
         allowed_members: list[str] | None = None,
     ):
+        room_name = (room_name or "").strip()
         if not room_name:
             return rx.toast("Room name required")
         auth = await self.get_state(AuthState)
         if not auth.user:
             return rx.toast("You must be logged in to create a room.")
+        self._load_db()
+        if room_name.lower().startswith("dm-"):
+            return rx.toast("Room names can't start with dm-.")
         if room_name in self._rooms:
             return rx.toast("Room already exists")
         creator = auth.user.username
-        self._rooms[room_name] = RoomInfo(
+        room = RoomInfo(
             name=room_name,
             description=description,
             participant_count=0,
@@ -228,6 +258,8 @@ class GlobalLobbyState(rx.SharedState):
                 else []
             ),
         )
+        db.save_room(room)
+        self._rooms = {**self._rooms, room_name: room}
         kind = "Private room" if is_private else "Room"
         return rx.toast(f"{kind} '{room_name}' created!")
 
@@ -243,9 +275,13 @@ class GlobalLobbyState(rx.SharedState):
         target = self
         if not self._linked_to:
             target = await self._link_to("global-lobby")
+        target._load_db()
         room_name = direct_room_name(me, username)
-        if room_name not in target._rooms:
-            target._rooms[room_name] = RoomInfo(
+        existing = target._rooms.get(room_name)
+        if existing is not None and not (existing.is_direct and existing.can_view(me) and existing.can_view(username)):
+            return rx.toast("This direct message can't be opened.")
+        if existing is None:
+            room = RoomInfo(
                 name=room_name,
                 description="Direct message",
                 created_by=me,
@@ -253,6 +289,8 @@ class GlobalLobbyState(rx.SharedState):
                 allowed_members=[username],
                 is_direct=True,
             )
+            db.save_room(room)
+            target._rooms = {**target._rooms, room_name: room}
         return [LocalUIState.show_rooms, RoomState.handle_join_room(room_name)]
 
     @rx.event
@@ -265,22 +303,9 @@ class GlobalLobbyState(rx.SharedState):
         room = self._rooms[room_name]
         if room.created_by != auth.user.username:
             return rx.toast("You can only delete rooms you created.")
-        del self._rooms[room_name]
+        db.delete_room(room_name)
+        self._rooms = {name: r for name, r in self._rooms.items() if name != room_name}
         return rx.toast(f"Room '{room_name}' deleted.")
-
-    @rx.event
-    async def record_message(self, room_name: str, message: ChatMessage):
-        """Store a message snapshot for admin view; keeps last 200 per room."""
-
-        target = self
-        if not self._linked_to:
-            target = await self._link_to("global-lobby")
-
-        room_msgs = target._messages_by_room.setdefault(room_name, [])
-        room_msgs.append(message)
-        # Cap per-room history to avoid unbounded growth
-        if len(room_msgs) > 200:
-            room_msgs[:] = room_msgs[-200:]
 
     @rx.event
     async def clear_all_data(self):
@@ -295,112 +320,69 @@ class GlobalLobbyState(rx.SharedState):
         if not is_admin and (not auth.user or auth.user.is_guest):
             yield rx.toast("Admin privileges required.")
             return
-        self._rooms = {
-            "General": RoomInfo(
-                name="General", description="The main hangout spot", participant_count=0
-            ),
-            "Tech Talk": RoomInfo(
-                name="Tech Talk",
-                description="Discussing the latest tech",
-                participant_count=0,
-            ),
-            "Random": RoomInfo(
-                name="Random", description="Anything goes!", participant_count=0
-            ),
-        }
-        self._known_profiles = {}
-        self._messages_by_room = {}
-        self._permissions = PermissionConfig()
-        self._approved_users = {}
+        db.clear_all()
+        # Open rooms reload their messages when someone next comes in.
+        db.set_setting("data_version", time.time())
+        self._reload_db()
         self._calls = {}
-        room_state = await self.get_state(RoomState)
+        self.activity += 1
+        if is_admin:
+            await self._admin_after_change()
         yield RoomState.reset_room_state
         yield rx.toast("Database cleared successfully!")
         return
 
-    def _snapshot(self) -> dict[str, Any]:
-        """Return current lobby snapshot for export."""
+    async def _admin_after_change(self):
+        """Refresh the admin's tables after relack.db was replaced."""
+        from relack.states.admin_state import AdminState  # noqa: WPS433
 
-        return {
-            "rooms": [room.dict() for room in self._rooms.values()],
-            "profiles": [profile.dict() for profile in self._known_profiles.values()],
-            "messages_by_room": {
-                room: [msg.dict() for msg in msgs] for room, msgs in self._messages_by_room.items()
-            },
-            "permissions": self._permissions.dict(),
-            "approved_users": dict(self._approved_users),
-        }
+        (await self.get_state(AdminState)).load_admin_data()
 
     @rx.event
     async def export_data(self):
-        """Serialize lobby data to JSON for admin download/copy."""
+        """Serialize all data to JSON for the admin to copy (in the admin's own tab only)."""
+        from relack.states.admin_state import AdminState  # noqa: WPS433
 
-        target = self
-        if not self._linked_to:
-            target = await self._link_to("global-lobby")
-        snapshot = target._snapshot()
-        target.export_payload = json.dumps(snapshot, indent=2)
+        admin = await self.get_state(AdminState)
+        if not admin.is_authenticated:
+            return rx.toast("Admin privileges required.")
+        admin.export_payload = json.dumps(db.export_all(), indent=2, ensure_ascii=False)
         return rx.toast("Export ready. Copy the JSON below.")
 
     @rx.event
     async def export_data_to_file(self):
         """Trigger a file download of the current snapshot."""
-
-        target = self
-        if not self._linked_to:
-            target = await self._link_to("global-lobby")
-        snapshot = target._snapshot()
-        payload = json.dumps(snapshot, indent=2)
+        if not await _is_admin(self):
+            return rx.toast("Admin privileges required.")
+        payload = json.dumps(db.export_all(), indent=2, ensure_ascii=False)
         stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-        filename = f"relack-{stamp}.json"
-        # Set export_payload as well for UI visibility
-        target.export_payload = payload
-        return rx.download(data=payload, filename=filename)
-
-    @rx.event
-    def set_import_payload(self, value: str):
-        self.import_payload = value
+        return rx.download(data=payload, filename=f"relack-{stamp}.json")
 
     @rx.event
     async def import_data(self, payload: str):
-        """Restore lobby data from JSON payload."""
-
+        """Replace all data with a JSON export."""
+        if not await _is_admin(self):
+            yield rx.toast("Admin privileges required.")
+            return
         try:
             data = json.loads(payload)
         except Exception:
             yield rx.toast("Import failed: invalid JSON")
             return
 
-        rooms_raw = data.get("rooms", [])
-        profiles_raw = data.get("profiles", [])
-        messages_raw = data.get("messages_by_room", {})
-        permissions_raw = data.get("permissions")
-
         try:
-            self._rooms = {room["name"]: RoomInfo(**room) for room in rooms_raw}
-            self._known_profiles = {
-                profile["username"]: UserProfile(**profile) for profile in profiles_raw
-            }
-            reconstructed: dict[str, list[ChatMessage]] = {}
-            for room_name, msgs in messages_raw.items():
-                reconstructed[room_name] = [ChatMessage(**msg) for msg in msgs]
-            self._messages_by_room = reconstructed
-            if permissions_raw:
-                self._permissions = PermissionConfig(**permissions_raw)
-            else:
-                self._permissions = PermissionConfig()
-            approved_raw = data.get("approved_users", {})
-            if approved_raw:
-                self._approved_users = {str(k): bool(v) for k, v in approved_raw.items()}
-                from relack.auth.session import set_approved_status
-                for email, approved in self._approved_users.items():
-                    set_approved_status(email, approved)
+            db.import_all(data)
         except Exception:
+            # Checked before writing: the current data is unchanged.
             yield rx.toast("Import failed: schema mismatch")
             return
+        db.set_setting("data_version", time.time())
+        target = self if self._linked_to else await self._link_to("global-lobby")
+        target._reload_db()
+        target.activity += 1
+        await self._admin_after_change()
 
         # Clear active room sessions; admins are not joined to rooms.
-        room_state = await self.get_state(RoomState)
         yield RoomState.reset_room_state
         # Sync permission UI to imported snapshot
         permission_state = await self.get_state(PermissionState)
@@ -427,65 +409,16 @@ class GlobalLobbyState(rx.SharedState):
 
 
 class TabSessionState(rx.State):
-    """Per-tab session storage for room counts and selection."""
+    """Per-tab session storage for the room selection."""
 
     tab_id: str = rx.SessionStorage("", name="relack_tab_id")
-    all_room_counts_json: str = rx.SessionStorage("{}", name="relack_all_room_count")
-    all_room_read_counts_json: str = rx.SessionStorage("{}", name="relack_all_room_read_count")
     last_room_name: str = rx.SessionStorage("", name="relack_last_room")
     curr_room_name: str = rx.SessionStorage("", name="relack_curr_room")
 
-    @rx.var
-    def unread_counts(self) -> dict[str, int]:
-        try:
-            total_counts = json.loads(self.all_room_counts_json or "{}")
-            read_counts = json.loads(self.all_room_read_counts_json or "{}")
-        except Exception:
-            return {}
-
-        diff = {}
-        for room, count in total_counts.items():
-            read = read_counts.get(room, 0)
-            val = count - read
-            if val > 0:
-                diff[room] = val
-        return diff
-
     @rx.event
     def reset_tab_session(self):
-        self.all_room_counts_json = "{}"
-        self.all_room_read_counts_json = "{}"
         self.last_room_name = ""
         self.curr_room_name = ""
-
-    @rx.event
-    def seed_read_counts(self, message_counts: dict[str, int]):
-        try:
-            read_counts = json.loads(self.all_room_read_counts_json or "{}")
-        except Exception:
-            read_counts = {}
-        if read_counts:
-            return
-        safe_counts = message_counts or {}
-        updated = False
-        for room_name, total in safe_counts.items():
-            prior = read_counts.get(room_name, 0)
-            if total > prior:
-                read_counts[room_name] = total
-                updated = True
-        if updated:
-            self.all_room_read_counts_json = json.dumps(read_counts)
-
-    @rx.event
-    def mark_room_read(self, room_name: str, current_total: int):
-        try:
-            read_counts = json.loads(self.all_room_read_counts_json or "{}")
-        except Exception:
-            read_counts = {}
-        existing = read_counts.get(room_name, 0)
-        if current_total > existing:
-            read_counts[room_name] = current_total
-            self.all_room_read_counts_json = json.dumps(read_counts)
 
 
 class LocalUIState(rx.State):
@@ -493,7 +426,7 @@ class LocalUIState(rx.State):
 
     is_sidebar_open: bool = True
     is_user_list_open: bool = False
-    # Main panel of the dashboard: "rooms" (chat) or "people" (member directory).
+    # Main panel of the dashboard: "rooms" (chat), "people" (member directory) or "search".
     main_view: str = "rooms"
 
     @rx.event
@@ -503,6 +436,10 @@ class LocalUIState(rx.State):
     @rx.event
     def show_people(self):
         self.main_view = "people"
+
+    @rx.event
+    def show_search(self):
+        self.main_view = "search"
 
     @rx.event
     def toggle_sidebar(self):
@@ -517,6 +454,9 @@ class RoomState(rx.SharedState):
     """
     Manages the state of a specific chat room.
     This state will be linked to a specific room token (e.g., 'room-general').
+
+    Messages are stored in relack.db; this keeps the latest WINDOW of them,
+    and the threads someone has open, for everyone in the room.
     """
 
     _active_users: dict[str, str] = {}
@@ -524,9 +464,20 @@ class RoomState(rx.SharedState):
     _active_user_last_seen: dict[str, float] = {}
     _messages: list[ChatMessage] = []
     _current_room_by_client: dict[str, str] = {}
-    _message_counts_by_room: dict[str, int] = {}
     _room_info_map: dict[str, RoomInfo] = {}
     _known_profiles_snapshot: dict[str, UserProfile] = {}
+    # The room these messages are from, and which data they were loaded from
+    # (a re-created room or an import/clear makes it reload).
+    _room: str = ""
+    _loaded_version: str = ""
+    # Whether the room has messages before the window ("Load earlier messages").
+    window_has_older: bool = False
+    # Bumped when the window was cut or a message before it changed: tabs that
+    # show older messages load them again.
+    history_rev: int = 0
+    # Threads someone has open: the root message and its replies, by root id.
+    _thread_roots: dict[str, ChatMessage] = {}
+    _thread_replies: dict[str, list[ChatMessage]] = {}
     current_message: str = ""
     STALE_WINDOW_SECONDS: int = 10
 
@@ -543,6 +494,14 @@ class RoomState(rx.SharedState):
     @rx.var
     def messages(self) -> list[ChatMessage]:
         return self._messages
+
+    @rx.var
+    def thread_roots(self) -> dict[str, ChatMessage]:
+        return self._thread_roots
+
+    @rx.var
+    def thread_replies(self) -> dict[str, list[ChatMessage]]:
+        return self._thread_replies
 
     @rx.var
     def users(self) -> list[str]:
@@ -578,6 +537,30 @@ class RoomState(rx.SharedState):
         return mapping
 
     @rx.var
+    def mention_candidates(self) -> str:
+        """People the composer's @ autocomplete offers (JSON: username, name, avatar seed)."""
+        info = self._room_info_map.get(self._room)
+        if info is None:
+            return "[]"
+        profiles = self._known_profiles_snapshot
+        usernames = (
+            list(profiles)
+            if not info.is_private
+            else [u for u in [info.created_by, *info.allowed_members] if u]
+        )
+        people = []
+        for username in dict.fromkeys(usernames):
+            profile = profiles.get(username)
+            people.append(
+                {
+                    "u": username,
+                    "n": (profile.nickname if profile else "") or username,
+                    "s": (profile.avatar_seed if profile else "") or username,
+                }
+            )
+        return json.dumps(people, ensure_ascii=False)
+
+    @rx.var
     def room_creator_username(self) -> str:
         info = self._room_info_map.get(self.room_name)
         return info.created_by if info else ""
@@ -604,17 +587,6 @@ class RoomState(rx.SharedState):
             for username in [info.created_by, *info.allowed_members]
         ]
 
-    async def _sync_visible_counts(self, tab_state: "TabSessionState"):
-        """Write per-room message totals to the tab, omitting private rooms it cannot see."""
-        auth = await self.get_state(AuthState)
-        username = auth.user.username if auth.user else ""
-        visible = {
-            room: count
-            for room, count in self._message_counts_by_room.items()
-            if (info := self._room_info_map.get(room)) is not None and info.can_view(username)
-        }
-        tab_state.all_room_counts_json = json.dumps(visible)
-
     @rx.var
     def room_creator_display(self) -> str:
         username = self.room_creator_username
@@ -624,6 +596,13 @@ class RoomState(rx.SharedState):
         if profile and profile.nickname:
             return profile.nickname
         return username
+
+    async def _lobby(self) -> GlobalLobbyState:
+        lobby = await self.get_state(GlobalLobbyState)
+        if not lobby._linked_to:
+            lobby = await lobby._link_to("global-lobby")
+        lobby._load_db()
+        return lobby
 
     async def _prune_stale_clients(self, now_ts: float | None = None):
         """Remove clients that have not sent a heartbeat recently."""
@@ -642,16 +621,14 @@ class RoomState(rx.SharedState):
 
     @rx.event
     async def heartbeat(self):
-        """Refresh presence for this client, sync message counts, and prune stale sessions."""
+        """Refresh presence for this client and prune stale sessions."""
         client_token = self.router.session.client_token
         tab_state = await self.get_state(TabSessionState)
         if not tab_state.tab_id:
             tab_state.tab_id = str(uuid.uuid4())
         tab_id = tab_state.tab_id
 
-        lobby = await self.get_state(GlobalLobbyState)
-        if not lobby._linked_to:
-            lobby = await lobby._link_to("global-lobby")
+        lobby = await self._lobby()
 
         try:
             session_id = parse_session_id(self.router.headers.cookie)
@@ -666,10 +643,11 @@ class RoomState(rx.SharedState):
         except Exception:
             pass
 
-        self._message_counts_by_room = {room: len(msgs) for room, msgs in lobby._messages_by_room.items()}
-        self._room_info_map = dict(lobby._rooms)
-        self._known_profiles_snapshot = dict(lobby._known_profiles)
-        await self._sync_visible_counts(tab_state)
+        # Only on change: every write here goes out to the whole room.
+        if self._room_info_map != lobby._rooms:
+            self._room_info_map = dict(lobby._rooms)
+        if self._known_profiles_snapshot != lobby._known_profiles:
+            self._known_profiles_snapshot = dict(lobby._known_profiles)
 
         now_ts = datetime.datetime.utcnow().timestamp()
         await self._prune_stale_clients(now_ts)
@@ -690,18 +668,18 @@ class RoomState(rx.SharedState):
     async def on_disconnect(self):
         """Cleanup presence when the client disconnects (e.g., tab closed)."""
         client_token = self.router.session.client_token
-        
+
         # 1. Try to identify room from local context
         room_name = self.room_name
-        
+
         # 2. If not found locally, check global registry
         lobby = await self.get_state(GlobalLobbyState)
         if not lobby._linked_to:
             lobby = await lobby._link_to("global-lobby")
-            
+
         if not room_name and hasattr(lobby, "_user_locations"):
             room_name = lobby._user_locations.get(client_token, "")
-            
+
         # 3. Clean up global registry
         if hasattr(lobby, "_user_locations"):
             lobby._user_locations.pop(client_token, None)
@@ -710,9 +688,8 @@ class RoomState(rx.SharedState):
             return
 
         # 4. Link to the correct room state instance and remove user
-        safe_token = f"room-{room_name.replace(' ', '-').replace('_', '-').lower()}"
-        target_state = await self._link_to(safe_token)
-        
+        target_state = await self._link_to(_room_token(room_name))
+
         tab_state = await self.get_state(TabSessionState)
         tab_id = tab_state.tab_id
         if tab_id:
@@ -740,33 +717,37 @@ class RoomState(rx.SharedState):
         self._active_user_profiles = {}
         self._messages = []
         self._current_room_by_client = {}
-        self._message_counts_by_room = {}
         self._room_info_map = {}
         self._known_profiles_snapshot = {}
+        self._room = ""
+        self._loaded_version = ""
+        self._thread_roots = {}
+        self._thread_replies = {}
+        self.window_has_older = False
         self.current_message = ""
         tab_state = await self.get_state(TabSessionState)
         tab_state.reset_tab_session()
 
     @rx.event
     async def handle_join_room(self, room_name: str):
+        from relack.states.chat_state import ChatUIState  # noqa: WPS433
+
         auth = await self.get_state(AuthState)
         if not auth.user:
             return rx.toast("Please log in to join rooms")
 
-        lobby = await self.get_state(GlobalLobbyState)
-        if not lobby._linked_to:
-            lobby = await lobby._link_to("global-lobby")
+        lobby = await self._lobby()
         room_info = lobby._rooms.get(room_name)
-        if room_info is not None and not room_info.can_view(auth.user.username):
+        if room_info is None or not room_info.can_view(auth.user.username):
             tab_state = await self.get_state(TabSessionState)
             if tab_state.last_room_name == room_name:
                 tab_state.last_room_name = ""
-            return rx.toast("This room is private.")
+            return rx.toast("This room is private.") if room_info else None
 
         # Optimization: If already in this room, just mark as read/refresh and return
         # This prevents unnecessary unlink/link cycles which can cause UI state flicker or "No room selected"
         if self.room_name == room_name:
-            await self.mark_room_read_to_current(room_name)
+            db.mark_read(auth.user.username, room_name)
             await self.heartbeat()
             return
 
@@ -775,31 +756,31 @@ class RoomState(rx.SharedState):
         tab_state.curr_room_name = room_name
         if self.room_name:
             await self._internal_leave_room(clear_tab_state=False)
-        safe_token = f"room-{room_name.replace(' ', '-').replace('_', '-').lower()}"
-        new_room_state = await self._link_to(safe_token)
+        ui = await self.get_state(ChatUIState)
+        ui.reset_room()
+        new_room_state = await self._link_to(_room_token(room_name))
         client_token = self.router.session.client_token
         new_room_state._current_room_by_client[client_token] = room_name
         tab_state.last_room_name = room_name
-        # Load existing history for this room from lobby snapshot (if any)
-        lobby = await self.get_state(GlobalLobbyState)
-        if not lobby._linked_to:
-            lobby_linked = await lobby._link_to("global-lobby")
-        else:
-            lobby_linked = lobby
 
         # Update global user location tracking
-        if not hasattr(lobby_linked, "_user_locations"):
-            lobby_linked._user_locations = {}
-        lobby_linked._user_locations[client_token] = room_name
+        if not hasattr(lobby, "_user_locations"):
+            lobby._user_locations = {}
+        lobby._user_locations[client_token] = room_name
 
-        prior_msgs = lobby_linked._messages_by_room.get(room_name, [])
-        new_room_state._messages = list(prior_msgs)
-        new_room_state._message_counts_by_room = {
-            room: len(msgs) for room, msgs in lobby_linked._messages_by_room.items()
-        }
-        new_room_state._room_info_map = dict(lobby_linked._rooms)
-        new_room_state._known_profiles_snapshot = dict(lobby_linked._known_profiles)
-        await new_room_state._sync_visible_counts(tab_state)
+        version = f"{db.get_setting('data_version', 0.0)}:{db.room_created_at(room_name)}"
+        if (
+            new_room_state._room != room_name
+            or new_room_state._loaded_version != version
+            or not new_room_state._messages
+        ):
+            new_room_state._room = room_name
+            new_room_state._loaded_version = version
+            new_room_state._thread_roots = {}
+            new_room_state._thread_replies = {}
+            new_room_state._set_window(db.room_messages(room_name, WINDOW))
+        new_room_state._room_info_map = dict(lobby._rooms)
+        new_room_state._known_profiles_snapshot = dict(lobby._known_profiles)
 
         username = auth.user.username
         if not tab_state.tab_id:
@@ -809,11 +790,10 @@ class RoomState(rx.SharedState):
         new_room_state._active_user_profiles[tab_id] = auth.user
         new_room_state._active_user_last_seen[tab_id] = datetime.datetime.utcnow().timestamp()
 
-        # Refresh counts/presence after linking to ensure unread map is up to date immediately.
+        # Refresh presence after linking.
         await new_room_state.heartbeat()
 
-        # Mark only this room as read at its current total.
-        await new_room_state.mark_room_read_to_current(room_name)
+        db.mark_read(username, room_name)
 
     async def _internal_leave_room(self, clear_tab_state: bool):
         client_token = self.router.session.client_token
@@ -845,48 +825,220 @@ class RoomState(rx.SharedState):
     async def handle_leave_room(self):
         await self._internal_leave_room(clear_tab_state=True)
 
+    async def _post(
+        self, user: UserProfile, text: str, files: list[Attachment], parent_id: str = ""
+    ) -> ChatMessage | None:
+        """Store a message from `user` in this room and tell everyone's tabs."""
+        room = self.room_name
+        room_info = db.load_rooms().get(room)
+        if room_info is None or not room_info.can_view(user.username):
+            return None
+        content, mentions = resolve_mentions(text, db.room_people(room_info))
+        plain = plain_text(content, db.display_names())
+        url = first_url(split_message(plain))
+        preview = await fetch_preview(url) if url else None
+        msg_id, seq = db.insert_message(
+            room=room,
+            sender=user.username,
+            display_name=user.nickname or user.username,
+            content=content,
+            plain=plain,
+            mentions=mentions,
+            preview=preview,
+            parent_id=parent_id,
+            file_ids=[f.id for f in files],
+        )
+        db.mark_read(user.username, room, seq)
+        lobby = await self._lobby()
+        lobby.activity += 1
+        return db.get_message(msg_id)
+
+    def _set_window(self, messages: list[ChatMessage]):
+        """The room messages everyone in the room sees (older ones load per tab)."""
+        self._messages = messages
+        self.window_has_older = bool(messages) and db.has_older(self._room, messages[0].seq)
+        self.history_rev += 1
+
+    def _in_window(self, msg_id: str) -> bool:
+        return any(m.id == msg_id for m in self._messages)
+
+    def _replace_message(self, msg: ChatMessage):
+        """Show the new version of a message wherever this room has it."""
+        if self._in_window(msg.id):
+            self._messages = [msg if m.id == msg.id else m for m in self._messages]
+        elif not msg.parent_id:
+            # Older than the window: tabs showing it load it again.
+            self.history_rev += 1
+        if msg.id in self._thread_roots:
+            self._thread_roots = {**self._thread_roots, msg.id: msg}
+        if msg.parent_id in self._thread_replies:
+            self._thread_replies = {
+                **self._thread_replies,
+                msg.parent_id: [msg if r.id == msg.id else r for r in self._thread_replies[msg.parent_id]],
+            }
+
+    def _drop_messages(self, ids: list[str]):
+        gone = set(ids)
+        if any(not self._in_window(i) for i in gone):
+            self.history_rev += 1
+        self._messages = [m for m in self._messages if m.id not in gone]
+        self._thread_roots = {k: v for k, v in self._thread_roots.items() if k not in gone}
+        self._thread_replies = {
+            root: [r for r in replies if r.id not in gone]
+            for root, replies in self._thread_replies.items()
+            if root not in gone
+        }
+
+    async def _my_message(self, msg_id: str) -> tuple[UserProfile, Any] | None:
+        """The logged-in user and the row of their own message in this room."""
+        auth = await self.get_state(AuthState)
+        row = db.message_row(msg_id)
+        if not auth.user or row is None or row["room"] != self.room_name:
+            return None
+        if row["sender"] != auth.user.username:
+            return None
+        return auth.user, row
+
     @rx.event
     async def send_message(self, form_data: dict[str, Any]):
-        message_text = form_data.get("message", "").strip()
-        if not message_text:
+        from relack.states.chat_state import ComposerState  # noqa: WPS433
+
+        message_text = (form_data.get("message") or "").strip()
+        if too_long := _too_long(message_text):
+            return too_long
+        composer = await self.get_state(ComposerState)
+        files = list(composer.pending)
+        if not message_text and not files:
             return
-        tab_state = await self.get_state(TabSessionState)
-        tab_id = tab_state.tab_id
-        sender = self._active_users.get(tab_id, "Unknown")
-        profile = self._active_user_profiles.get(tab_id)
-        display_name = sender
-        if profile:
-            display_name = profile.nickname or profile.username
-
-        parts = split_message(message_text)
-        url = first_url(parts)
-        preview = await fetch_preview(url) if url else None
-
-        msg = ChatMessage(
-            id=str(uuid.uuid4()),
-            sender=sender,
-            display_name=display_name,
-            content=message_text,
-            timestamp=datetime.datetime.now().strftime("%H:%M"),
-            is_system=False,
-            parts=parts,
-            **{f"preview_{k}": v for k, v in (preview or {}).items()},
-        )
-        self._messages.append(msg)
-        self._message_counts_by_room[self.room_name] = len(self._messages)
-        await self._sync_visible_counts(tab_state)
-        lobby = await self.get_state(GlobalLobbyState)
-        await lobby.record_message(self.room_name, msg)
+        auth = await self.get_state(AuthState)
+        if not auth.user or not self.room_name:
+            return
+        composer.pending = []
+        msg = await self._post(auth.user, message_text, files)
+        if msg is None:
+            return rx.toast("This room is private.")
+        messages = [*self._messages, msg]
+        if len(messages) > TRIM_AT:
+            self._set_window(messages[-WINDOW:])
+        else:
+            self._messages = messages
         self.current_message = ""
 
     @rx.event
-    async def seed_all_room_read_counts(self):
-        """Initialize read counts to current totals (used on initial dashboard entry)."""
-        tab_state = await self.get_state(TabSessionState)
-        tab_state.seed_read_counts(self._message_counts_by_room)
+    async def send_reply(self, form_data: dict[str, Any]):
+        """Reply in the thread open in this tab."""
+        from relack.states.chat_state import ChatUIState, ComposerState  # noqa: WPS433
 
-    async def mark_room_read_to_current(self, room_name: str):
-        """Set read count for a specific room to its current total, without decreasing."""
-        tab_state = await self.get_state(TabSessionState)
-        current_total = self._message_counts_by_room.get(room_name, 0)
-        tab_state.mark_room_read(room_name, current_total)
+        ui = await self.get_state(ChatUIState)
+        root_id = form_data.get("root_id") or ui.thread_id
+        message_text = (form_data.get("message") or "").strip()
+        if too_long := _too_long(message_text):
+            return too_long
+        composer = await self.get_state(ComposerState)
+        files = list(composer.pending_thread)
+        if not root_id or (not message_text and not files):
+            return
+        auth = await self.get_state(AuthState)
+        root = db.message_row(root_id)
+        if not auth.user or root is None or root["room"] != self.room_name or root["parent_id"]:
+            return
+        composer.pending_thread = []
+        msg = await self._post(auth.user, message_text, files, parent_id=root_id)
+        if msg is None:
+            return
+        replies = self._thread_replies.get(root_id)
+        self._thread_replies = {
+            **self._thread_replies,
+            root_id: [*replies, msg] if replies is not None else db.thread_replies(root_id),
+        }
+        root_msg = db.get_message(root_id)
+        if root_msg is not None:
+            self._thread_roots = {**self._thread_roots, root_id: root_msg}
+            self._replace_message(root_msg)
+            ui.replace_older(root_msg)
+
+    @rx.event
+    async def open_thread(self, root_id: str):
+        from relack.states.chat_state import ChatUIState  # noqa: WPS433
+
+        root = db.get_message(root_id)
+        if root is None or root.room != self.room_name or root.parent_id:
+            return
+        roots = {k: v for k, v in self._thread_roots.items() if k != root_id}
+        replies = {k: v for k, v in self._thread_replies.items() if k != root_id}
+        # Keep the most recently opened threads.
+        keep = list(roots)[-(MAX_OPEN_THREADS - 1):]
+        self._thread_roots = {**{k: roots[k] for k in keep}, root_id: root}
+        self._thread_replies = {
+            **{k: replies[k] for k in keep if k in replies},
+            root_id: db.thread_replies(root_id),
+        }
+        ui = await self.get_state(ChatUIState)
+        ui.thread_id = root_id
+        ui.editing_id = ""
+
+    @rx.event
+    async def toggle_reaction(self, msg_id: str, emoji: str):
+        from relack.states.chat_state import ChatUIState  # noqa: WPS433
+
+        auth = await self.get_state(AuthState)
+        row = db.message_row(msg_id)
+        if not auth.user or row is None or row["room"] != self.room_name or row["deleted"] or emoji not in EMOJI:
+            return
+        db.toggle_reaction(msg_id, emoji, auth.user.username)
+        msg = db.get_message(msg_id)
+        if msg is not None:
+            self._replace_message(msg)
+            ui = await self.get_state(ChatUIState)
+            ui.replace_older(msg)
+
+    @rx.event
+    async def save_edit(self, form_data: dict[str, Any]):
+        from relack.states.chat_state import ChatUIState  # noqa: WPS433
+
+        ui = await self.get_state(ChatUIState)
+        msg_id = form_data.get("id") or ui.editing_id
+        text = (form_data.get("message") or "").strip()
+        if too_long := _too_long(text):
+            return too_long
+        found = await self._my_message(msg_id)
+        ui.editing_id = ""
+        if found is None or found[1]["deleted"]:
+            return
+        _user, row = found
+        if not text:
+            # Saving an empty message deletes it, as in Slack.
+            ui.deleting_id = msg_id
+            return
+        room_info = db.load_rooms().get(self.room_name)
+        content, mentions = resolve_mentions(text, db.room_people(room_info) if room_info else {})
+        if content == row["content"]:
+            return
+        plain = plain_text(content, db.display_names())
+        url = first_url(split_message(plain))
+        old_preview = json.loads(row["preview"] or "{}")
+        preview = old_preview if old_preview.get("url") == url else (await fetch_preview(url) if url else None)
+        db.update_message_text(msg_id, content, plain, mentions, preview)
+        msg = db.get_message(msg_id)
+        if msg is not None:
+            self._replace_message(msg)
+            ui.replace_older(msg)
+
+    @rx.event
+    async def delete_message(self, msg_id: str):
+        from relack.states.chat_state import ChatUIState  # noqa: WPS433
+
+        found = await self._my_message(msg_id)
+        if found is None:
+            return rx.toast("You can only delete your own messages.")
+        row = found[1]
+        removed = db.delete_message(msg_id)
+        ui = await self.get_state(ChatUIState)
+        self._drop_messages(removed)
+        ui.remove_older(removed)
+        if ui.thread_id in removed:
+            ui.thread_id = ""
+        for changed in [msg_id if msg_id not in removed else "", row["parent_id"]]:
+            if changed and changed not in removed and (msg := db.get_message(changed)) is not None:
+                self._replace_message(msg)
+                ui.replace_older(msg)
