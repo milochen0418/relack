@@ -219,7 +219,7 @@ def run():
             shots["after_hang_up"] = callee.screenshot()
 
             print("Decliner closes the dialog (on_cancel)...")
-            decliner.get_by_role("button", name="Close").click()
+            decliner.get_by_role("button", name="Close", exact=True).click()
             expect(decliner.locator("#ddns-intent-frame")).to_have_count(0, timeout=10000)
             wait_in_call(caller, [CALLER])
             expect(callee.get_by_role("button", name="Join call · 1")).to_be_visible(timeout=10000)

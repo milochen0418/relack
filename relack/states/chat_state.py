@@ -156,7 +156,7 @@ class ChatUIState(rx.State):
     async def jump_to(self, room_name: str, msg_id: str, parent_id: str = ""):
         """Open a room at a message (and its thread), e.g. from search or a notification."""
         local = await self.get_state(LocalUIState)
-        local.main_view = "rooms"
+        local.show("rooms")
         room = await self.get_state(RoomState)
         if room.room_name != room_name:
             await room.handle_join_room(room_name)
@@ -203,9 +203,13 @@ class ChatUIState(rx.State):
             return None
         if op == "viewport":
             local = await self.get_state(LocalUIState)
-            local.is_narrow = bool(data.get("narrow"))
-            if local.is_narrow and (await self.get_state(RoomState)).room_name:
+            narrow = bool(data.get("narrow"))
+            if narrow and not local.is_narrow and (await self.get_state(RoomState)).room_name:
                 local.is_sidebar_open = False
+            elif local.is_narrow and not narrow:
+                # Grown past the drawer size: the list has room beside the chat again.
+                local.is_sidebar_open = True
+            local.is_narrow = narrow
             auth = await self.get_state(AuthState)
             zone = str(data.get("zone", ""))[:60]
             if auth.user and zone and db.load_profiles().get(auth.user.username, auth.user).timezone != zone:
@@ -318,7 +322,7 @@ class SearchState(rx.State):
         self.files = db.search_files(query, me, rooms)
         self.people = db.search_people(query) if permissions.can(auth.user, "view_profiles") else []
         local = await self.get_state(LocalUIState)
-        local.main_view = "search"
+        local.show("search")
 
     @rx.event
     async def close(self):

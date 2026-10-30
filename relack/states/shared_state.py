@@ -567,27 +567,35 @@ class LocalUIState(rx.State):
     # Narrow screen: the sidebar is a drawer, closed once a room is picked.
     is_narrow: bool = False
 
-    @rx.event
-    def show_rooms(self):
-        self.main_view = "rooms"
+    def show(self, view: str):
+        """Show a panel; on a narrow screen the drawer gets out of its way."""
+        self.main_view = view
         if self.is_narrow:
             self.is_sidebar_open = False
 
     @rx.event
+    def show_rooms(self):
+        self.show("rooms")
+
+    @rx.event
     def show_later(self):
-        self.main_view = "later"
+        self.show("later")
 
     @rx.event
     def show_browse(self):
-        self.main_view = "browse"
+        self.show("browse")
+
+    @rx.event
+    def close_sidebar(self):
+        self.is_sidebar_open = False
+
+    @rx.event
+    def close_user_list(self):
+        self.is_user_list_open = False
 
     @rx.event
     def show_people(self):
-        self.main_view = "people"
-
-    @rx.event
-    def show_search(self):
-        self.main_view = "search"
+        self.show("people")
 
     @rx.event
     def toggle_sidebar(self):

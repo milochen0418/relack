@@ -392,7 +392,7 @@ CLIENT_JS = r"""
     });
   }
   function whenReady(fn, tries) {
-    if (document.getElementById('relack-bridge')) return setTimeout(fn, 800);
+    if (document.getElementById('relack-bridge')) return setTimeout(fn, 300);
     if ((tries || 0) < 100) setTimeout(() => whenReady(fn, (tries || 0) + 1), 200);
   }
   whenReady(() => {
@@ -410,6 +410,11 @@ CLIENT_JS = r"""
   document.addEventListener('keydown', e => {
     const t = e.target;
     if (!t || !t.matches) return;
+    if (e.key === 'Escape') {
+      // The drawer on a narrow screen closes like a dialog.
+      const backdrop = document.querySelector('.relack-backdrop');
+      if (backdrop && getComputedStyle(backdrop).display !== 'none') backdrop.click();
+    }
     if (e.key === 'Escape' && document.querySelector('.relack-viewer') && !t.matches(composerSel)) {
       closeViewer();
       return;
@@ -651,15 +656,25 @@ CHAT_CSS = """
   text-align: left; width: 20rem; padding: 0.75rem 1rem; background: #fff; border: 1px solid #fde68a;
   border-radius: 0.75rem; box-shadow: 0 12px 30px rgba(15, 23, 42, 0.15); font-size: 0.875rem;
 }
+.relack-dashboard { height: calc(100vh - 86px); }
+.relack-page:has(.relack-dashboard) { height: 100dvh; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.relack-page:has(.relack-dashboard) > .relack-navbar { flex: none; }
+.relack-page .relack-dashboard { flex: 1; height: auto; min-height: 0; }
+.relack-backdrop { display: none; }
+@media (max-width: 1099px) {
+  /* The chat keeps the width; thread and online users slide over it. */
+  .relack-side-panel { position: fixed; top: 0; right: 0; bottom: 0; z-index: 55; width: min(420px, 100vw); height: auto; box-shadow: 0 0 40px rgba(15, 23, 42, 0.25); }
+}
 @media (max-width: 767px) {
+  .relack-backdrop { display: block; position: fixed; inset: 0; z-index: 55; background: rgba(15, 23, 42, 0.45); }
   .relack-sidebar { position: fixed; top: 0; bottom: 0; left: 0; z-index: 60; width: 85vw; max-width: 20rem; box-shadow: 0 0 40px rgba(15, 23, 42, 0.3); overflow-y: auto; }
-  [data-relack-thread-panel] { position: fixed; inset: 0; z-index: 55; width: 100vw; max-width: 100vw; }
   #relack-messages { padding: 0.75rem; }
   .relack-navbar-extra, .relack-navbar .text-\\[10px\\], .relack-navbar .w-px { display: none !important; }
   .relack-navbar { padding: 0.5rem 0.75rem !important; }
   .relack-navbar a > div { padding: 0.25rem !important; border: 0 !important; }
   .relack-navbar .text-sm.font-bold, .relack-navbar button > div { font-size: 0; gap: 0; }
   .relack-room-heading { margin-left: 0.5rem !important; min-width: 0; }
+  .relack-room-actions button { margin-right: 0 !important; padding: 0.3rem !important; }
   .relack-room-heading > :not(h2) { display: none; }
   .relack-room-heading h2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 1rem; }
   [data-relack-drop] > .px-6 { padding-left: 0.5rem; padding-right: 0.5rem; }

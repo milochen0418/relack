@@ -45,7 +45,7 @@ def index() -> rx.Component:
                     class_name="fixed top-24 right-4 z-50 bg-white/80 backdrop-blur px-3 py-1.5 rounded-full shadow-sm border border-gray-200",
                 ),
             ),
-            class_name="min-h-screen bg-gray-50/50 font-sans relative",
+            class_name="relack-page min-h-screen bg-gray-50/50 font-sans relative",
             on_mount=[GlobalLobbyState.join_lobby],
         )
     )

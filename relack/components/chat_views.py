@@ -487,18 +487,52 @@ def status_menu() -> rx.Component:
     )
 
 
+def sidebar_toggle() -> rx.Component:
+    """Opens and closes the room list; every panel of the dashboard has one."""
+    return rx.el.button(
+        rx.icon("panel-left", class_name="h-5 w-5"),
+        on_click=LocalUIState.toggle_sidebar,
+        title="Rooms",
+        aria_label="Toggle sidebar",
+        class_name=rx.cond(
+            LocalUIState.is_sidebar_open,
+            "p-2 rounded-lg hover:bg-gray-100 text-violet-600 bg-violet-50 transition-colors shrink-0",
+            "p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors shrink-0",
+        ),
+    )
+
+
+def with_toggle(content: rx.Component) -> rx.Component:
+    """A panel without its own header: the way back to a closed room list sits above it."""
+    return rx.el.div(
+        rx.cond(~LocalUIState.is_sidebar_open, rx.el.div(sidebar_toggle(), class_name="px-4 pt-3")),
+        content,
+        class_name="flex-1 flex flex-col overflow-y-auto min-w-0",
+    )
+
+
 def sidebar() -> rx.Component:
     return rx.el.aside(
         rx.el.div(
-            rx.el.button(
-                rx.icon("users", class_name="h-5 w-5 mr-2"),
-                T("People"),
-                on_click=[LocalUIState.show_people, PeopleState.load_members],
-                class_name=rx.cond(
-                    LocalUIState.main_view == "people",
-                    "w-full flex items-center px-3 py-2 mb-4 rounded-xl text-sm font-semibold bg-violet-50 text-violet-600",
-                    "w-full flex items-center px-3 py-2 mb-4 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors",
+            rx.el.div(
+                rx.el.button(
+                    rx.icon("users", class_name="h-5 w-5 mr-2"),
+                    T("People"),
+                    on_click=[LocalUIState.show_people, PeopleState.load_members],
+                    class_name=rx.cond(
+                        LocalUIState.main_view == "people",
+                        "flex-1 flex items-center px-3 py-2 rounded-xl text-sm font-semibold bg-violet-50 text-violet-600",
+                        "flex-1 flex items-center px-3 py-2 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors",
+                    ),
                 ),
+                rx.el.button(
+                    rx.icon("panel-left-close", class_name="h-5 w-5"),
+                    on_click=LocalUIState.close_sidebar,
+                    title="Close",
+                    aria_label="Close sidebar",
+                    class_name="ml-1 p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors shrink-0",
+                ),
+                class_name="flex items-center mb-1",
             ),
             sidebar_link("compass", "Browse rooms", "browse", [LocalUIState.show_browse, RoomAdminState.load_browse]),
             sidebar_link("bookmark", "Saved & scheduled", "later", [LocalUIState.show_later, LaterState.load]),
@@ -524,14 +558,14 @@ def sidebar() -> rx.Component:
             search_box(),
             rx.el.div(
                 rx.foreach(GlobalLobbyState.visible_room_list, room_card),
-                class_name="flex flex-col gap-2 overflow-y-auto flex-1 pr-1",
+                class_name="flex flex-col gap-2 overflow-y-auto flex-1 min-h-40 pr-1",
             ),
             class_name="p-4 h-full flex flex-col",
         ),
         create_room_modal(),
         class_name=rx.cond(
             LocalUIState.is_sidebar_open,
-            "relack-sidebar w-72 bg-white border-r border-gray-200 h-full flex flex-col transition-all duration-300 ease-in-out shrink-0",
+            "relack-sidebar w-72 bg-white border-r border-gray-200 h-full flex flex-col overflow-y-auto transition-all duration-300 ease-in-out shrink-0",
             "relack-sidebar-closed w-0 overflow-hidden h-full flex flex-col transition-all duration-300 ease-in-out shrink-0",
         ),
     )
@@ -1230,7 +1264,7 @@ def thread_panel() -> rx.Component:
         ),
         rx.el.div(composer("thread"), class_name="p-3 border-t border-gray-200"),
         custom_attrs={"data-relack-drop": "relack-upload-thread", "data-relack-thread-panel": "1"},
-        class_name="w-[420px] max-w-[45vw] bg-white border-l border-gray-200 h-full flex flex-col shrink-0",
+        class_name="relack-side-panel w-[420px] bg-white border-l border-gray-200 h-full flex flex-col shrink-0",
     )
 
 
@@ -1451,6 +1485,13 @@ def users_panel() -> rx.Component:
                 T("Online Users"),
                 class_name="text-sm font-bold text-gray-900 uppercase tracking-wider",
             ),
+            rx.el.button(
+                rx.icon("x", class_name="h-4 w-4"),
+                on_click=LocalUIState.close_user_list,
+                title="Close",
+                aria_label="Close online users",
+                class_name=_ICON_BUTTON,
+            ),
             class_name="flex items-center justify-between mb-4 px-2",
         ),
         rx.el.div(
@@ -1459,7 +1500,7 @@ def users_panel() -> rx.Component:
         ),
         class_name=rx.cond(
             LocalUIState.is_user_list_open,
-            "w-64 bg-white border-l border-gray-200 h-full flex flex-col p-4 transition-all duration-300 ease-in-out shrink-0",
+            "relack-side-panel w-64 bg-white border-l border-gray-200 h-full flex flex-col p-4 transition-all duration-300 ease-in-out shrink-0",
             "w-0 overflow-hidden h-full flex flex-col p-0 border-none transition-all duration-300 ease-in-out shrink-0",
         ),
     )
@@ -1888,11 +1929,7 @@ def chat_area() -> rx.Component:
     return rx.el.div(
         rx.el.div(
             rx.el.div(
-                rx.el.button(
-                    rx.icon("panel-left", class_name="h-5 w-5"),
-                    on_click=LocalUIState.toggle_sidebar,
-                    class_name=f"p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors {rx.cond(LocalUIState.is_sidebar_open, 'text-violet-600 bg-violet-50', '')}",
-                ),
+                sidebar_toggle(),
                 rx.el.div(
                     rx.el.h2(
                         GlobalLobbyState.room_titles[RoomState.room_name],
@@ -1945,6 +1982,8 @@ def chat_area() -> rx.Component:
                 rx.el.button(
                     rx.icon("users", class_name="h-5 w-5"),
                     on_click=LocalUIState.toggle_user_list,
+                    title="Online users",
+                    aria_label="Online users",
                     class_name=f"p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors mr-2 {rx.cond(LocalUIState.is_user_list_open, 'text-violet-600 bg-violet-50', '')}",
                 ),
                 rx.el.button(
@@ -1952,7 +1991,7 @@ def chat_area() -> rx.Component:
                     on_click=RoomState.handle_leave_room,
                     class_name="text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors p-2 rounded-lg",
                 ),
-                class_name="flex items-center",
+                class_name="relack-room-actions flex items-center shrink-0",
             ),
             class_name="h-16 border-b border-gray-200 flex items-center justify-between px-4 bg-white/80 backdrop-blur-sm sticky top-0 z-10",
         ),
@@ -2044,13 +2083,18 @@ def chat_dashboard() -> rx.Component:
             pending_view(),
             rx.fragment(
                 sidebar(),
+                # Behind the drawer on narrow screens; hidden by CSS on wide ones.
+                rx.cond(
+                    LocalUIState.is_sidebar_open,
+                    rx.el.div(on_click=LocalUIState.close_sidebar, class_name="relack-backdrop"),
+                ),
                 rx.match(
                     LocalUIState.main_view,
-                    ("people", rx.el.div(people_view(), class_name="flex-1 overflow-y-auto")),
-                    ("search", rx.el.div(search_view(), class_name="flex-1 overflow-y-auto")),
-                    ("later", rx.el.div(later_view(), class_name="flex-1 overflow-y-auto")),
-                    ("browse", rx.el.div(browse_view(), class_name="flex-1 overflow-y-auto")),
-                    rx.cond(RoomState.in_room, chat_area(), empty_state()),
+                    ("people", with_toggle(people_view())),
+                    ("search", with_toggle(search_view())),
+                    ("later", with_toggle(later_view())),
+                    ("browse", with_toggle(browse_view())),
+                    rx.cond(RoomState.in_room, chat_area(), with_toggle(empty_state())),
                 ),
             ),
         ),
@@ -2084,7 +2128,7 @@ def chat_dashboard() -> rx.Component:
             "data-relack-sound": UnreadState.sound,
             "data-relack-desktop": UnreadState.desktop,
         },
-        class_name="flex h-[calc(100vh-85px)] overflow-hidden bg-gray-50/50",
+        class_name="relack-dashboard flex overflow-hidden bg-gray-50/50",
         # Ensure lobby link exists so room list is populated even after reloads.
         on_mount=[
             GlobalLobbyState.join_lobby,

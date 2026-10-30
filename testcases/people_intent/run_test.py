@@ -160,7 +160,7 @@ def run():
             frame.get_by_role("heading", name="Bob Builder").wait_for(timeout=30000)
             frame.get_by_text("Approval").wait_for(timeout=10000)
             shots["picked_profile_dialog"] = page.screenshot()
-            page.get_by_role("button", name="Close").click()
+            page.get_by_role("button", name="Close", exact=True).click()
             expect(page.locator("#ddns-intent-frame")).to_have_count(0)
 
             print("After a reload, People is not stuck in picker mode...")
