@@ -229,10 +229,12 @@ async def fetch_preview(url: str) -> dict[str, str] | None:
     preview: dict[str, str] | None = None
     try:
         target = _fetch_target(url)
-        try:
-            fetched = await _fetch_html(target)
-        except _Forbidden:
-            fetched = await _fetch_html(target, _FALLBACK_USER_AGENT)
+        # A whole deadline too: a slow-drip site must not hold up the sender's room.
+        async with asyncio.timeout(_TIMEOUT_SECONDS * 2):
+            try:
+                fetched = await _fetch_html(target)
+            except _Forbidden:
+                fetched = await _fetch_html(target, _FALLBACK_USER_AGENT)
         if fetched:
             final_url, page = fetched
             parser = _MetaParser()
@@ -250,7 +252,7 @@ async def fetch_preview(url: str) -> dict[str, str] | None:
                     "image": urljoin(final_url, image) if image else "",
                     "site": meta.get("og:site_name") or (urlparse(url).hostname or ""),
                 }
-    except (httpx.HTTPError, UnicodeError, ValueError, _Forbidden) as exc:
+    except Exception as exc:  # Never let a bad link stop the message.
         logger.info("link preview failed for %s: %s", url, exc)
 
     _cache[url] = (now, preview)

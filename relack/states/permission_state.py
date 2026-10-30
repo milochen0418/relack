@@ -6,18 +6,17 @@ from relack.models import PermissionConfig
 class PermissionState(rx.State):
     """Local admin-only permissions configuration (UI scaffold).
 
-    Note: These toggles are saved (relack.db) but not yet enforced in the
-    rest of the app.
+    Saved in relack.db; relack/permissions.py applies them.
     """
 
-    google_requires_approval: bool = True
-    guest_requires_approval: bool = True
-    guest_can_create_room: bool = False
-    guest_can_mention_users: bool = False
-    guest_can_view_profiles: bool = False
-    google_can_create_room: bool = False
-    google_can_mention_users: bool = False
-    google_can_view_profiles: bool = False
+    google_requires_approval: bool = False
+    guest_requires_approval: bool = False
+    guest_can_create_room: bool = True
+    guest_can_mention_users: bool = True
+    guest_can_view_profiles: bool = True
+    google_can_create_room: bool = True
+    google_can_mention_users: bool = True
+    google_can_view_profiles: bool = True
 
     def _to_config(self) -> PermissionConfig:
         return PermissionConfig(
@@ -32,11 +31,14 @@ class PermissionState(rx.State):
         )
 
     async def _update_lobby_permissions(self):
-        from relack.states.shared_state import GlobalLobbyState  # noqa: WPS433
+        from relack.states.shared_state import GlobalLobbyState, _is_admin  # noqa: WPS433
 
+        if not await _is_admin(self):
+            return
         lobby = await self.get_state(GlobalLobbyState)
         lobby._permissions = self._to_config()
         db.set_setting("permissions", lobby._permissions.model_dump())
+        db.audit("admin", "permissions.change")
 
     async def _set_from_config(self, config: PermissionConfig):
         self.google_requires_approval = config.google_requires_approval
@@ -98,11 +100,19 @@ class PermissionState(rx.State):
 
     @rx.event
     async def save_permissions(self):
+        from relack.states.shared_state import _is_admin  # noqa: WPS433
+
+        if not await _is_admin(self):
+            return rx.toast("Admin privileges required.")
         await self._update_lobby_permissions()
         return rx.toast("Permissions saved.")
 
     @rx.event
     async def reset_permissions(self):
+        from relack.states.shared_state import _is_admin  # noqa: WPS433
+
+        if not await _is_admin(self):
+            return rx.toast("Admin privileges required.")
         await self._set_from_config(PermissionConfig())
         await self._update_lobby_permissions()
         return rx.toast("Permissions reset to defaults.")

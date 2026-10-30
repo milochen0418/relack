@@ -1,6 +1,6 @@
 import os
 import reflex as rx
-from relack import db
+from relack import db, permissions
 from relack.formatting import mention_href
 from relack.models import UserProfile
 from relack.auth.session import (
@@ -41,6 +41,10 @@ class AuthState(rx.State):
         user = self.user
         return mention_href(user.username) if user else ""
 
+    @rx.var(cache=False)
+    def is_admin(self) -> bool:
+        return permissions.is_admin(self.user)
+
     @rx.event
     def handle_google_login(self):
         base = self._auth_base_url()
@@ -58,7 +62,11 @@ class AuthState(rx.State):
         if "@" in nickname:
             return rx.toast("Guest nicknames can't contain @.")
         existing = db.load_profiles().get(nickname)
-        if nickname.lower() == "system" or (existing is not None and not existing.is_guest):
+        if (
+            nickname.lower() == "system"
+            or nickname.lower().startswith("bot:")
+            or (existing is not None and not existing.is_guest)
+        ):
             return rx.toast("That name is taken. Please choose another nickname.")
 
         profile = UserProfile(
@@ -86,6 +94,10 @@ class AuthState(rx.State):
 
         tab_state = await self.get_state(TabSessionState)
         tab_state.reset_tab_session()
+
+        from relack.states.admin_state import AdminState
+
+        (await self.get_state(AdminState)).logout()
 
         session_id = self._get_session_id()
         if session_id:

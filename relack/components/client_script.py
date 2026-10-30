@@ -108,7 +108,7 @@ CLIENT_JS = r"""
     if (pos !== ta.selectionEnd) return closeMention();
     const before = ta.value.slice(0, pos);
     const m = before.match(/(^|[^A-Za-z0-9_])@([^@\n]{0,40})$/);
-    if (!m || insideCodeBlock(ta)) return closeMention();
+    if (!m || insideCodeBlock(ta) || ta.closest('form').dataset.mentions === 'off') return closeMention();
     const query = m[2].toLowerCase();
     const r = root();
     const me = r ? r.dataset.relackMe : '';
@@ -218,6 +218,21 @@ CLIENT_JS = r"""
     } catch (e) {}
   }
   function inFront() { return document.visibilityState === 'visible' && document.hasFocus(); }
+  function showNote(it) {
+    const box = document.createElement('button');
+    box.className = 'relack-note';
+    const head = document.createElement('strong');
+    head.textContent = it.title;
+    const body = document.createElement('span');
+    body.textContent = it.body;
+    box.append(head, body);
+    box.addEventListener('click', () => {
+      bridge({ op: 'jump', room: it.room, id: it.target || it.id, parent: it.parent });
+      box.remove();
+    });
+    document.body.appendChild(box);
+    setTimeout(() => box.remove(), 15000);
+  }
   window.relackNotify = function (items) {
     const r = root();
     if (!r) return;
@@ -225,7 +240,7 @@ CLIENT_JS = r"""
     let sound = false;
     for (const it of items) {
       // Already on screen: the message is in the room or thread this tab shows.
-      if (inFront() && ((it.room === room && !it.parent) || (it.parent && it.parent === thread))) continue;
+      if (it.kind !== 'reminder' && inFront() && ((it.room === room && !it.parent) || (it.parent && it.parent === thread))) continue;
       const key = 'relack_notified_' + it.id;
       try {
         if (localStorage.getItem(key)) continue; // another tab of this browser has shown it
@@ -233,6 +248,7 @@ CLIENT_JS = r"""
       } catch (e) {}
       sound = true;
       R.shown = (R.shown || []).concat([it]);
+      if (it.kind === 'reminder' && inFront()) showNote(it);
       if (!inFront() && r.dataset.relackDesktop !== 'off' && 'Notification' in window &&
           Notification.permission === 'granted') {
         try {
@@ -243,7 +259,7 @@ CLIENT_JS = r"""
           });
           n.onclick = () => {
             window.focus();
-            bridge({ op: 'jump', room: it.room, id: it.id, parent: it.parent });
+            bridge({ op: 'jump', room: it.room, id: it.target || it.id, parent: it.parent });
             n.close();
           };
         } catch (e) {}
@@ -367,6 +383,29 @@ CLIENT_JS = r"""
     document.body.appendChild(box);
   }
 
+  // ---------- screen size, time zone, links to a message ----------
+  function reportViewport() {
+    bridge({
+      op: 'viewport',
+      narrow: window.innerWidth < 768,
+      zone: Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+    });
+  }
+  function whenReady(fn, tries) {
+    if (document.getElementById('relack-bridge')) return setTimeout(fn, 800);
+    if ((tries || 0) < 100) setTimeout(() => whenReady(fn, (tries || 0) + 1), 200);
+  }
+  whenReady(() => {
+    reportViewport();
+    const m = new URLSearchParams(location.search).get('m');
+    if (m) setTimeout(() => bridge({ op: 'link', id: m }), 700);
+  });
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(reportViewport, 400);
+  });
+
   // ---------- events ----------
   document.addEventListener('keydown', e => {
     const t = e.target;
@@ -420,7 +459,14 @@ CLIENT_JS = r"""
 
   document.addEventListener('input', e => {
     const t = e.target;
-    if (t && t.matches && t.matches(composerSel)) { autosize(t); updateMention(t); }
+    if (t && t.matches && t.matches(composerSel)) {
+      autosize(t);
+      updateMention(t);
+      if (t.dataset.relackComposer !== 'edit' && t.value && Date.now() - (R.typedAt || 0) > 3000) {
+        R.typedAt = Date.now();
+        bridge({ op: 'typing' });
+      }
+    }
   }, true);
   document.addEventListener('focusin', e => {
     const t = e.target;
@@ -454,6 +500,29 @@ CLIENT_JS = r"""
     if (emoji) {
       const ta = targetComposer(emoji);
       if (ta) insertText(ta, emoji.dataset.relackEmoji);
+      return;
+    }
+    const later = t.closest('[data-relack-later]');
+    if (later) {
+      const ta = document.querySelector('textarea[data-relack-composer="main"]');
+      if (ta && ta.value.trim()) {
+        let seconds = Number(later.dataset.relackLater);
+        if (later.dataset.relackLater === 'tomorrow') {
+          const at = new Date();
+          at.setDate(at.getDate() + 1);
+          at.setHours(9, 0, 0, 0);
+          seconds = Math.round((at - new Date()) / 1000);
+        }
+        bridge({ op: 'later', text: ta.value, seconds });
+        ta.closest('form').reset();
+      }
+      return;
+    }
+    const copy = t.closest('[data-relack-copy]');
+    if (copy) {
+      const url = location.origin + '/?m=' + encodeURIComponent(copy.dataset.relackCopy);
+      if (navigator.clipboard) navigator.clipboard.writeText(url);
+      R.copied = url;
       return;
     }
     const picture = t.closest('img[data-relack-image]');
@@ -577,6 +646,24 @@ CHAT_CSS = """
   color: #fff; background: rgba(255, 255, 255, 0.15); border-radius: 0.5rem; padding: 0.3rem 0.75rem; text-decoration: none;
 }
 .relack-viewer-bar a:hover, .relack-viewer-bar button:hover { background: rgba(255, 255, 255, 0.25); }
+.relack-note {
+  position: fixed; right: 1.5rem; top: 6rem; z-index: 1500; display: flex; flex-direction: column; gap: 0.15rem;
+  text-align: left; width: 20rem; padding: 0.75rem 1rem; background: #fff; border: 1px solid #fde68a;
+  border-radius: 0.75rem; box-shadow: 0 12px 30px rgba(15, 23, 42, 0.15); font-size: 0.875rem;
+}
+@media (max-width: 767px) {
+  .relack-sidebar { position: fixed; top: 0; bottom: 0; left: 0; z-index: 60; width: 85vw; max-width: 20rem; box-shadow: 0 0 40px rgba(15, 23, 42, 0.3); overflow-y: auto; }
+  [data-relack-thread-panel] { position: fixed; inset: 0; z-index: 55; width: 100vw; max-width: 100vw; }
+  #relack-messages { padding: 0.75rem; }
+  .relack-navbar-extra, .relack-navbar .text-\\[10px\\], .relack-navbar .w-px { display: none !important; }
+  .relack-navbar { padding: 0.5rem 0.75rem !important; }
+  .relack-navbar a > div { padding: 0.25rem !important; border: 0 !important; }
+  .relack-navbar .text-sm.font-bold, .relack-navbar button > div { font-size: 0; gap: 0; }
+  .relack-room-heading { margin-left: 0.5rem !important; min-width: 0; }
+  .relack-room-heading > :not(h2) { display: none; }
+  .relack-room-heading h2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 1rem; }
+  [data-relack-drop] > .px-6 { padding-left: 0.5rem; padding-right: 0.5rem; }
+}
 .relack-mention-pop {
   position: absolute; left: 0; bottom: calc(100% + 6px); width: min(22rem, 100%); max-height: 18rem; overflow-y: auto;
   background: #fff; border: 1px solid #e5e7eb; border-radius: 0.75rem; box-shadow: 0 12px 30px rgba(15, 23, 42, 0.15);

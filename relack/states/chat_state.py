@@ -1,6 +1,7 @@
 """Per-tab chat state: the open thread, editing, older history, uploads, search, unread counts."""
 
 import json
+import time
 import logging
 import mimetypes
 import os
@@ -8,11 +9,16 @@ import os
 import reflex as rx
 from reflex_ddns_auth.intent import Intent
 
-from relack import db
+from relack import db, permissions
 from relack.formatting import plain_text
-from relack.models import Attachment, ChatMessage, FileHit, SearchHit, UserProfile
+from relack.commands import set_status
+from relack.models import (
+    Attachment, ChatMessage, FileHit, RoomBrowseItem, SavedItem, ScheduledItem, SearchHit,
+    UserProfile, WebhookInfo,
+)
+from relack import posting
 from relack.states.auth_state import AuthState
-from relack.states.shared_state import LocalUIState, RoomState, TabSessionState
+from relack.states.shared_state import GlobalLobbyState, LocalUIState, RoomState, TabSessionState
 
 MAX_UPLOAD_BYTES = int(os.environ.get("RELACK_MAX_UPLOAD_MB", "200")) * 1024 * 1024
 # Older room messages loaded per "Load earlier messages".
@@ -27,6 +33,7 @@ class ChatUIState(rx.State):
     editing_id: str = ""
     edit_text: str = ""
     deleting_id: str = ""
+    forwarding_id: str = ""
     # Message to point at after a jump (search result, notification).
     highlight_id: str = ""
     # Messages older than the room's shared window, loaded by this tab, and
@@ -56,6 +63,35 @@ class ChatUIState(rx.State):
     def remove_older(self, ids: list[str]):
         if ids:
             self.older = [m for m in self.older if m.id not in ids]
+
+    @rx.event
+    def ask_forward(self, msg_id: str):
+        self.forwarding_id = msg_id
+
+    @rx.event
+    def set_forward_open(self, is_open: bool):
+        if not is_open:
+            self.forwarding_id = ""
+
+    @rx.event
+    async def forward_to(self, room_name: str):
+        """Post a quote of the message in another room."""
+        msg_id, self.forwarding_id = self.forwarding_id, ""
+        auth = await self.get_state(AuthState)
+        row = db.message_row(msg_id)
+        rooms = db.load_rooms()
+        source, target = rooms.get(row["room"]) if row else None, rooms.get(room_name)
+        if (
+            not auth.user or permissions.is_pending(auth.user) or source is None or target is None
+            or target.archived or not source.can_view(auth.user.username) or not target.can_view(auth.user.username)
+        ):
+            return rx.toast("This message can't be forwarded there.")
+        me = auth.user
+        names = db.display_names()
+        quote = "\n".join("> " + line for line in row["plain"].splitlines())
+        text = f"Forwarded from {names.get(row['sender'], row['sender'])}:\n{quote}"
+        await posting.post(target, me.username, me.nickname or me.username, text, mentions=False)
+        return rx.toast("Forwarded.")
 
     @rx.event
     def close_thread(self):
@@ -154,8 +190,29 @@ class ChatUIState(rx.State):
             data = json.loads(value)
         except (TypeError, ValueError):
             return
-        if data.get("op") == "jump":
+        op = data.get("op")
+        if op == "jump":
             return ChatUIState.jump_to(data.get("room", ""), data.get("id", ""), data.get("parent", ""))
+        if op == "link":
+            row = db.message_row(str(data.get("id", "")))
+            if row is not None:
+                return ChatUIState.jump_to(row["room"], row["id"], row["parent_id"])
+            return None
+        if op == "typing":
+            await (await self.get_state(RoomState)).mark_typing()
+            return None
+        if op == "viewport":
+            local = await self.get_state(LocalUIState)
+            local.is_narrow = bool(data.get("narrow"))
+            if local.is_narrow and (await self.get_state(RoomState)).room_name:
+                local.is_sidebar_open = False
+            auth = await self.get_state(AuthState)
+            zone = str(data.get("zone", ""))[:60]
+            if auth.user and zone and db.load_profiles().get(auth.user.username, auth.user).timezone != zone:
+                await set_status(self, auth.user, timezone=zone)
+            return None
+        if op == "later":
+            return LaterState.schedule(str(data.get("text", "")), float(data.get("seconds", 0)))
         if data.get("op") == "profile" and data.get("user"):
             return Intent.start("relack", "profile.view", user=data["user"])
 
@@ -169,7 +226,7 @@ class ComposerState(rx.State):
 
     async def _store(self, files: list[rx.UploadFile]) -> list[Attachment]:
         auth = await self.get_state(AuthState)
-        if not auth.user:
+        if not auth.user or permissions.is_pending(auth.user):
             return []
         stored = []
         for upload in files:
@@ -252,14 +309,14 @@ class SearchState(rx.State):
         if not query:
             return
         auth = await self.get_state(AuthState)
-        if not auth.user:
+        if not auth.user or permissions.is_pending(auth.user):
             return
         me = auth.user.username
         rooms = db.load_rooms()
         self.searched = query
         self.messages = db.search_messages(query, me, rooms)
         self.files = db.search_files(query, me, rooms)
-        self.people = db.search_people(query)
+        self.people = db.search_people(query) if permissions.can(auth.user, "view_profiles") else []
         local = await self.get_state(LocalUIState)
         local.main_view = "search"
 
@@ -271,6 +328,252 @@ class SearchState(rx.State):
         return rx.set_value("relack-search", "")
 
 
+class LaterState(rx.State):
+    """This person's saved messages and scheduled posts, and the room's pins."""
+
+    saved_ids: list[str] = []
+    items: list[SavedItem] = []
+    scheduled: list[ScheduledItem] = []
+    pins: list[SavedItem] = []
+
+    @rx.event
+    async def load(self):
+        auth = await self.get_state(AuthState)
+        if auth.user:
+            me = auth.user.username
+            self.saved_ids = db.saved_ids(me)
+            self.items = db.saved_items(me)
+            self.scheduled = db.scheduled_items(me)
+
+    @rx.event
+    async def load_pins(self):
+        auth = await self.get_state(AuthState)
+        tab = await self.get_state(TabSessionState)
+        rooms = db.load_rooms()
+        room = rooms.get(tab.curr_room_name)
+        if auth.user and room and room.can_view(auth.user.username):
+            self.pins = db.pinned(room.name, auth.user.username)
+
+    async def _own(self, msg_id: str) -> str:
+        """The user's name, if they can see the message."""
+        auth = await self.get_state(AuthState)
+        row = db.message_row(msg_id)
+        room = db.load_rooms().get(row["room"]) if row else None
+        if not auth.user or not room or not room.can_view(auth.user.username) or permissions.is_pending(auth.user):
+            return ""
+        return auth.user.username
+
+    @rx.event
+    async def toggle_saved(self, msg_id: str):
+        me = await self._own(msg_id)
+        if me:
+            db.set_saved(me, msg_id, msg_id not in db.saved_ids(me))
+            await self.load()
+
+    @rx.event
+    async def remind(self, msg_id: str, seconds: int):
+        me = await self._own(msg_id)
+        if me:
+            db.set_saved(me, msg_id, True, time.time() + seconds)
+            await self.load()
+            return rx.toast("Reminder set.")
+
+    @rx.event
+    async def schedule(self, text: str, seconds: float):
+        auth = await self.get_state(AuthState)
+        tab = await self.get_state(TabSessionState)
+        room = db.load_rooms().get(tab.curr_room_name)
+        text = text.strip()
+        if (
+            not auth.user or room is None or not room.can_view(auth.user.username) or room.archived
+            or not text or permissions.is_pending(auth.user)
+        ):
+            return
+        db.add_scheduled(auth.user.username, room.name, text[: posting.MAX_MESSAGE_CHARS], time.time() + max(seconds, 60))
+        await self.load()
+        return rx.toast("Scheduled.")
+
+    @rx.event
+    async def cancel_scheduled(self, item_id: str):
+        auth = await self.get_state(AuthState)
+        if auth.user:
+            db.cancel_scheduled(item_id, auth.user.username)
+            await self.load()
+
+
+class StatusState(rx.State):
+    """The status box above the room list."""
+
+    emoji: str = ""
+    text: str = ""
+    dnd_until: float = 0.0
+
+    @rx.event
+    async def load(self):
+        auth = await self.get_state(AuthState)
+        if auth.user:
+            profile = db.load_profiles().get(auth.user.username, auth.user)
+            self.emoji, self.text = db.active_status(profile)
+            self.dnd_until = profile.dnd_until if profile.dnd_until > time.time() else 0.0
+
+    @rx.event
+    def set_text(self, value: str):
+        self.text = value[:100]
+
+    @rx.event
+    async def save(self, emoji: str):
+        auth = await self.get_state(AuthState)
+        if auth.user:
+            await set_status(self, auth.user, status_emoji=emoji, status_text=self.text, status_until=0.0)
+            await self.load()
+
+    @rx.event
+    async def clear(self):
+        self.text = ""
+        await self.save("")
+
+    @rx.event
+    async def set_dnd(self, seconds: int):
+        auth = await self.get_state(AuthState)
+        if auth.user:
+            await set_status(self, auth.user, dnd_until=time.time() + seconds if seconds else 0.0)
+            await self.load()
+
+
+class RoomAdminState(rx.State):
+    """The room settings dialog and the Browse rooms list."""
+
+    is_open: bool = False
+    room: str = ""
+    title: str = ""
+    description: str = ""
+    can_manage: bool = False
+    is_private: bool = False
+    archived: bool = False
+    muted: bool = False
+    members: list[UserProfile] = []
+    hooks: list[WebhookInfo] = []
+    hook_name: str = ""
+    browse: list[RoomBrowseItem] = []
+
+    @rx.event
+    def set_title(self, value: str):
+        self.title = value
+
+    @rx.event
+    def set_description(self, value: str):
+        self.description = value
+
+    @rx.event
+    def set_hook_name(self, value: str):
+        self.hook_name = value
+
+    @rx.event
+    def set_open(self, is_open: bool):
+        self.is_open = is_open
+
+    def _manager(self, user, info) -> bool:
+        return bool(user) and not info.is_direct and (info.created_by == user.username or permissions.is_admin(user))
+
+    async def _fill(self, name: str):
+        auth = await self.get_state(AuthState)
+        info = db.load_rooms().get(name)
+        if not auth.user or info is None or not info.can_view(auth.user.username):
+            return False
+        me = auth.user.username
+        self.room, self.title, self.description = name, info.title or name, info.description
+        self.is_private, self.archived = info.is_private, info.archived
+        self.can_manage = self._manager(auth.user, info)
+        self.muted = db.room_pref(me, name)[1]
+        profiles = db.load_profiles()
+        self.members = [
+            profiles.get(u) or UserProfile(username=u, is_guest=False, avatar_seed=u) for u in info.allowed_members
+        ]
+        self.hooks = db.room_webhooks(name) if self.can_manage else []
+        return True
+
+    @rx.event
+    async def open_settings(self, name: str):
+        self.is_open = await self._fill(name)
+
+    @rx.event
+    async def save(self):
+        yield GlobalLobbyState.update_room(self.room, self.title, self.description)
+        self.is_open = False
+
+    @rx.event
+    async def toggle_muted(self):
+        auth = await self.get_state(AuthState)
+        if auth.user and self.room:
+            self.muted = not self.muted
+            db.set_room_pref(auth.user.username, self.room, muted=self.muted)
+
+    @rx.event
+    def add_member(self, data: dict):
+        """`people.pick` result handler."""
+        self.is_open = True
+        return [GlobalLobbyState.add_room_member(self.room, data.get("user", "")), RoomAdminState.refresh]
+
+    @rx.event
+    def remove_member(self, username: str):
+        return [GlobalLobbyState.remove_room_member(self.room, username), RoomAdminState.refresh]
+
+    @rx.event
+    async def refresh(self):
+        await self._fill(self.room)
+
+    @rx.event
+    async def add_hook(self):
+        auth = await self.get_state(AuthState)
+        info = db.load_rooms().get(self.room)
+        name = self.hook_name.strip()
+        if not info or not name or not self._manager(auth.user, info):
+            return
+        db.add_webhook(self.room, name[:60], auth.user.username)
+        db.audit(auth.user.username, "webhook.create", self.room, name)
+        self.hook_name = ""
+        self.hooks = db.room_webhooks(self.room)
+        return rx.set_value("relack-hook-name", "")
+
+    @rx.event
+    async def delete_hook(self, token: str):
+        auth = await self.get_state(AuthState)
+        info = db.load_rooms().get(self.room)
+        if info and self._manager(auth.user, info):
+            db.delete_webhook(self.room, token)
+            db.audit(auth.user.username, "webhook.delete", self.room)
+            self.hooks = db.room_webhooks(self.room)
+
+    @rx.event
+    async def load_browse(self):
+        auth = await self.get_state(AuthState)
+        if not auth.user:
+            return
+        me = auth.user.username
+        left = db.left_rooms(me)
+        names = db.display_names()
+        self.browse = [
+            RoomBrowseItem(
+                name=r.name, title=db.room_title(r, me, names), description=r.description,
+                archived=r.archived, joined=r.name not in left, can_manage=self._manager(auth.user, r),
+            )
+            for r in db.load_rooms().values()
+            if r.can_view(me) and not r.is_direct
+        ]
+
+    @rx.event
+    def rejoin(self, name: str):
+        return [GlobalLobbyState.set_room_left(name, False), RoomAdminState.load_browse]
+
+    @rx.event
+    def leave(self, name: str):
+        return [GlobalLobbyState.set_room_left(name, True), RoomAdminState.load_browse]
+
+    @rx.event
+    def unarchive(self, name: str):
+        return [GlobalLobbyState.set_archived(name, False), RoomAdminState.load_browse]
+
+
 class UnreadState(rx.State):
     """Unread counts of this tab's user, and the notifications they should get."""
 
@@ -280,6 +583,11 @@ class UnreadState(rx.State):
     total: int = 0
     # Notification.permission in this browser.
     permission: str = "default"
+    # What this user may do; refreshed with the counts.
+    pending: bool = False
+    can_create_room: bool = True
+    can_mention: bool = True
+    muted: list[str] = []
     # This browser's choices, read by the page script ("on" / "off").
     desktop: str = rx.LocalStorage("on", name="relack_desktop")
     sound: str = rx.LocalStorage("on", name="relack_sound")
@@ -307,12 +615,23 @@ class UnreadState(rx.State):
         me = auth.user.username
         if self._user != me:
             self._user, self._notified_seq = me, 0
+        self.pending = permissions.is_pending(auth.user)
+        self.can_create_room = permissions.can(auth.user, "create_room")
+        self.can_mention = permissions.can(auth.user, "mention_users")
+        if self.pending:
+            return
         rooms = {name: room for name, room in db.load_rooms().items() if room.can_view(me)}
+        muted = sorted(db.muted_rooms(me))
+        if muted != self.muted:
+            self.muted = muted
         tab = await self.get_state(TabSessionState)
         current = tab.curr_room_name if tab.curr_room_name in rooms else ""
         if seen and current:
             db.mark_read(me, current)
-        unread, mentions = db.unread_counts(me, rooms)
+        left = db.left_rooms(me)
+        unread, mentions = db.unread_counts(
+            me, [name for name, room in rooms.items() if name not in left and not room.archived]
+        )
         if seen and current:
             unread.pop(current, None)
             mentions.pop(current, None)
@@ -328,9 +647,23 @@ class UnreadState(rx.State):
         if not self._notified_seq:
             self._notified_seq = latest
             return
-        if latest <= self._notified_seq:
+        reminders = [
+            {
+                "seq": 0, "id": "remind-" + r.message_id + str(int(time.time())), "room": r.room,
+                "parent": r.parent_id, "kind": "reminder", "title": "Reminder", "body": r.text,
+                "seed": "", "target": r.message_id,
+            }
+            # Taken only by a tab that can show them.
+            for r in (db.due_reminders(me) if seen or self.permission == "granted" else [])
+        ]
+        if latest <= self._notified_seq and not reminders:
             return
         items = db.notifications_since(me, self._notified_seq, rooms)
         self._notified_seq = latest
+        # Do not disturb holds everything back, reminders aside.
+        profile = db.load_profiles().get(me)
+        if profile and profile.dnd_until > time.time():
+            items = []
+        items += reminders
         if items:
             return rx.call_script(f"window.relackNotify && window.relackNotify({json.dumps(items)})")

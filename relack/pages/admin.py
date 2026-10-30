@@ -85,14 +85,33 @@ def users_table():
                                             size="1",
                                             variant="soft",
                                             color_scheme="red",
-                                            on_click=GlobalLobbyState.revoke_user(user.email),
+                                            on_click=GlobalLobbyState.revoke_user(user.username),
                                         ),
                                         rx.button(
                                             "Approve",
                                             size="1",
                                             variant="soft",
                                             color_scheme="green",
-                                            on_click=GlobalLobbyState.approve_user(user.email),
+                                            on_click=GlobalLobbyState.approve_user(user.username),
+                                        ),
+                                    ),
+                                    rx.cond(
+                                        ~user.is_guest,
+                                        rx.cond(
+                                            AdminState.admin_accounts.contains(user.username),
+                                            rx.button(
+                                                "Remove admin",
+                                                size="1",
+                                                variant="soft",
+                                                color_scheme="orange",
+                                                on_click=AdminState.set_account_admin(user.username, False),
+                                            ),
+                                            rx.button(
+                                                "Make admin",
+                                                size="1",
+                                                variant="soft",
+                                                on_click=AdminState.set_account_admin(user.username, True),
+                                            ),
                                         ),
                                     ),
                                     rx.button(
@@ -181,7 +200,7 @@ def messages_table():
                     rx.foreach(
                         AdminState.message_logs,
                         lambda log: rx.table.row(
-                            rx.table.cell(GlobalLobbyState.room_titles[log.room_name]),
+                            rx.table.cell(log.room_title),
                             rx.table.cell(log.message.sender),
                             rx.table.cell(
                                 rx.cond(log.message.parent_id != "", "↳ ", ""),
@@ -198,6 +217,65 @@ def messages_table():
             class_name="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden",
         ),
         class_name="space-y-4",
+    )
+
+
+def audit_table():
+    return rx.el.div(
+        rx.el.h2("Audit log", class_name="text-xl font-bold text-gray-800 mb-4"),
+        rx.table.root(
+            rx.table.header(
+                rx.table.row(
+                    rx.table.column_header_cell("Time"),
+                    rx.table.column_header_cell("Who"),
+                    rx.table.column_header_cell("Action"),
+                    rx.table.column_header_cell("Target"),
+                    rx.table.column_header_cell("Detail"),
+                )
+            ),
+            rx.table.body(
+                rx.foreach(
+                    AdminState.audit,
+                    lambda e: rx.table.row(
+                        rx.table.cell(local_datetime(e.at)),
+                        rx.table.cell(e.actor),
+                        rx.table.cell(e.action),
+                        rx.table.cell(e.target),
+                        rx.table.cell(e.detail),
+                    ),
+                )
+            ),
+            variant="surface",
+            width="100%",
+        ),
+    )
+
+
+def retention_card():
+    return rx.el.div(
+        rx.el.h3("Message retention", class_name="text-lg font-semibold text-gray-900"),
+        rx.el.p(
+            "Delete messages and their files after this many days. 0 keeps them forever.",
+            class_name="text-sm text-gray-500 mb-3",
+        ),
+        rx.el.div(
+            rx.el.input(
+                default_value=AdminState.retention_days,
+                key=AdminState.is_authenticated,
+                on_change=AdminState.set_retention_days,
+                type="number",
+                min="0",
+                aria_label="Retention days",
+                class_name="w-28 px-3 py-2 border border-gray-200 rounded-lg",
+            ),
+            rx.el.button(
+                "Save retention",
+                on_click=AdminState.save_retention,
+                class_name="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-medium",
+            ),
+            class_name="flex items-center gap-3",
+        ),
+        class_name="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm",
     )
 
 
@@ -467,6 +545,7 @@ def settings_panel():
         rx.el.div(
             data_maintenance_card(),
             permissions_card(),
+            retention_card(),
             class_name="grid gap-6 lg:grid-cols-2",
         ),
         class_name="space-y-4",
@@ -514,6 +593,11 @@ def admin_dashboard():
                             "Messages",
                             value="messages",
                             on_click=[AdminState.close_settings_menu, AdminState.load_messages],
+                        ),
+                        rx.tabs.trigger(
+                            "Audit log",
+                            value="audit",
+                            on_click=[AdminState.close_settings_menu, AdminState.load_audit],
                         ),
                         rx.tabs.trigger(
                             rx.el.div(
@@ -566,6 +650,11 @@ def admin_dashboard():
                     class_name="mt-6",
                 ),
                 rx.tabs.content(
+                    audit_table(),
+                    value="audit",
+                    class_name="mt-6",
+                ),
+                rx.tabs.content(
                     settings_panel(),
                     value="settings",
                     class_name="mt-6",
@@ -582,6 +671,7 @@ def admin_dashboard():
 
 def admin_page():
     return rx.el.div(
+        rx.el.span(on_mount=AdminState.enter_as_account, class_name="hidden"),
         rx.el.div(
             navbar(),
             rx.cond(

@@ -3,7 +3,7 @@ from typing import Optional
 from relack.models import UserProfile
 from relack.states.auth_state import AuthState
 from relack.states.shared_state import GlobalLobbyState
-from relack import db
+from relack import db, permissions
 from relack.auth.session import get_approved_status, update_profile
 
 
@@ -45,6 +45,12 @@ class ProfileState(rx.State):
         # Check if it's the current user
         if auth.user and auth.user.username == username:
             self.current_profile = auth.user
+        elif not (
+            permissions.can(auth.user, "view_profiles")
+            if auth.user
+            else permissions.config().guest_can_view_profiles
+        ) or permissions.is_pending(auth.user):
+            self.current_profile = None
         else:
             # Check global lobby
             lobby = await self.get_state(GlobalLobbyState)
@@ -69,7 +75,9 @@ class ProfileState(rx.State):
         self.is_loading = True
         self.current_profile = None
 
-        if not username:
+        from relack.states.shared_state import _is_admin  # noqa: WPS433
+
+        if not username or not await _is_admin(self):
             self.is_loading = False
             return
 
@@ -119,7 +127,7 @@ class ProfileState(rx.State):
             return rx.toast("You can only edit your own profile.")
 
         # Update the login(s) of the current user and the stored profile
-        profile = auth.user.model_copy(
+        profile = db.load_profiles().get(auth.user.username, auth.user).model_copy(
             update={"nickname": self.edited_nickname, "bio": self.edited_bio}
         )
         update_profile(profile)

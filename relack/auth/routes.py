@@ -1,3 +1,4 @@
+import json
 import os
 import secrets
 import datetime
@@ -6,12 +7,13 @@ from urllib.parse import urlencode, urlparse
 
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import RedirectResponse
+from starlette.responses import JSONResponse, RedirectResponse
 from starlette.routing import Route
 from google.oauth2.id_token import verify_oauth2_token
 from google.auth.transport import requests as google_requests
 from httpx import AsyncClient
 
+from relack import db, posting
 from relack.models import UserProfile
 from relack.auth.session import (
     create_session,
@@ -26,6 +28,7 @@ GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 COOKIE_NAME = "relack_sid"
 COOKIE_MAX_AGE = 86400 * 30
+MAX_WEBHOOK_BYTES = 64 * 1024
 TOKEN_URI = "https://oauth2.googleapis.com/token"
 AUTH_URI = "https://accounts.google.com/o/oauth2/v2/auth"
 
@@ -152,10 +155,12 @@ async def google_callback(request: Request):
     if not email:
         return RedirectResponse(f"{_frontend_url(request)}/?auth_error=no_email")
 
+    stored = db.load_profiles().get(email)
     profile = UserProfile(
         username=email,
         email=email,
-        nickname=id_info.get("name", email),
+        # A nickname chosen in Relack stays over the Google name.
+        nickname=(stored.nickname if stored else "") or id_info.get("name", email),
         is_guest=False,
         avatar_seed=email,
         created_at=datetime.datetime.now().isoformat(),
@@ -164,6 +169,7 @@ async def google_callback(request: Request):
     )
 
     session_id = create_session(profile)
+    db.audit(email, "login", detail="Google")
     secure = _is_secure(request)
 
     sso_redirect = request.cookies.get("relack_sso_redirect", "")
@@ -229,10 +235,34 @@ async def sso_logout(request: Request):
     return response
 
 
+async def webhook(request: Request):
+    """POST {"text": "..."} to /api/relack/hooks/<token> posts in the webhook's room."""
+    hook = db.webhook(request.path_params["token"])
+    if hook is None:
+        return JSONResponse({"ok": False, "error": "unknown webhook"}, status_code=404)
+    raw = b""
+    async for chunk in request.stream():
+        raw += chunk
+        if len(raw) > MAX_WEBHOOK_BYTES:
+            return JSONResponse({"ok": False, "error": "too large"}, status_code=413)
+    try:
+        body = json.loads(raw)
+        text = str(body.get("text", "")).strip()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "send JSON with a text field"}, status_code=400)
+    room = db.load_rooms().get(hook["room"])
+    if not text or room is None or room.archived:
+        return JSONResponse({"ok": False, "error": "nothing to post"}, status_code=400)
+    name = str(body.get("username") or hook["name"])[:60]
+    msg_id = await posting.post(room, f"bot:{hook['name']}", name, text, mentions=False)
+    return JSONResponse({"ok": True, "id": msg_id})
+
+
 auth_routes = Starlette(routes=[
     Route("/auth/google/login", google_login),
     Route("/auth/google/callback", google_callback),
     Route("/auth/claim", claim_session),
     Route("/auth/logout", logout),
     Route("/auth/sso/logout", sso_logout),
+    Route("/api/relack/hooks/{token}", webhook, methods=["POST"]),
 ])

@@ -26,6 +26,7 @@ import time
 import reflex as rx
 from reflex_ddns_auth.intent import Intent, IntentState
 
+from relack import permissions
 from relack.models import CallInfo
 from relack.states.auth_state import AuthState
 from relack.states.shared_state import GlobalLobbyState
@@ -102,7 +103,7 @@ class CallState(rx.State):
         (``start_call`` comes back here with it).
         """
         auth = await self.get_state(AuthState)
-        if not auth.user:
+        if not auth.user or permissions.is_pending(auth.user):
             return rx.toast("Please log in to call.")
         me = auth.user.username
         lobby = await _lobby(self)

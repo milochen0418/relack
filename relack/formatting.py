@@ -51,8 +51,9 @@ def resolve_mentions(text: str, people: dict[str, str]) -> tuple[str, list[str]]
     for username, name in people.items():
         add(username, f"<@{username}>")
         add(name, f"<@{username}>")
-    for word in SPECIAL_MENTIONS:
-        add(word, f"<!{word}>")
+    if people:  # No one to mention (no permission, webhooks): no @here either.
+        for word in SPECIAL_MENTIONS:
+            add(word, f"<!{word}>")
     for names in buckets.values():
         names.sort(key=lambda n: len(n[0]), reverse=True)
 

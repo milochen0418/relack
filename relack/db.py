@@ -32,10 +32,14 @@ from relack.models import (
     Attachment,
     ChatMessage,
     FileHit,
+    AuditEntry,
     Reaction,
     RoomInfo,
+    SavedItem,
+    ScheduledItem,
     SearchHit,
     UserProfile,
+    WebhookInfo,
 )
 
 SESSION_SECONDS = 86400 * 30
@@ -128,6 +132,50 @@ CREATE TABLE IF NOT EXISTS mentions (
     PRIMARY KEY (seq, username)
 );
 CREATE INDEX IF NOT EXISTS mentions_user ON mentions(username, seq);
+CREATE TABLE IF NOT EXISTS room_prefs (
+    username TEXT NOT NULL,
+    room TEXT NOT NULL,
+    left_room INTEGER NOT NULL DEFAULT 0,
+    muted INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (username, room)
+);
+CREATE TABLE IF NOT EXISTS pins (
+    room TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    pinned_by TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    PRIMARY KEY (room, message_id)
+);
+CREATE TABLE IF NOT EXISTS saved (
+    username TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    remind_at REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (username, message_id)
+);
+CREATE TABLE IF NOT EXISTS scheduled (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    room TEXT NOT NULL,
+    text TEXT NOT NULL,
+    due_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS scheduled_due ON scheduled(due_at);
+CREATE TABLE IF NOT EXISTS webhooks (
+    token TEXT PRIMARY KEY,
+    room TEXT NOT NULL,
+    name TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at REAL NOT NULL,
+    actor TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target TEXT NOT NULL DEFAULT '',
+    detail TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS reads (
     username TEXT NOT NULL,
     room TEXT NOT NULL,
@@ -309,6 +357,11 @@ def delete_room(name: str):
         conn.execute("DELETE FROM files WHERE message_id IN (SELECT value FROM json_each(?))", (_ids_param(ids),))
         conn.execute("DELETE FROM mentions WHERE room = ?", (name,))
         conn.execute("DELETE FROM reads WHERE room = ?", (name,))
+        conn.execute("DELETE FROM room_prefs WHERE room = ?", (name,))
+        conn.execute("DELETE FROM pins WHERE room = ?", (name,))
+        conn.execute("DELETE FROM saved WHERE message_id IN (SELECT value FROM json_each(?))", (_ids_param(ids),))
+        conn.execute("DELETE FROM scheduled WHERE room = ?", (name,))
+        conn.execute("DELETE FROM webhooks WHERE room = ?", (name,))
         conn.execute("DELETE FROM messages WHERE room = ?", (name,))
         conn.execute("DELETE FROM rooms WHERE name = ?", (name,))
     for row in files:
@@ -340,6 +393,13 @@ def save_profile(profile: UserProfile):
     _cached()["profiles"] = profiles
 
 
+def active_status(profile: UserProfile) -> tuple[str, str]:
+    """(emoji, text) of a status that hasn't run out."""
+    if profile.status_until and profile.status_until < time.time():
+        return "", ""
+    return profile.status_emoji, profile.status_text
+
+
 def display_names() -> dict[str, str]:
     return {u: (p.nickname or u) for u, p in load_profiles().items()}
 
@@ -349,11 +409,11 @@ def avatar_seeds() -> dict[str, str]:
 
 
 def room_title(room: RoomInfo, viewer: str, names: dict[str, str]) -> str:
-    """Room name, or for a direct message the other person's name."""
+    """Room name, or for a direct message the other people's names."""
     if not room.is_direct:
-        return room.name
-    other = next((u for u in [room.created_by, *room.allowed_members] if u != viewer), viewer)
-    return names.get(other) or other
+        return room.title or room.name
+    others = [u for u in [room.created_by, *room.allowed_members] if u != viewer] or [viewer]
+    return ", ".join(names.get(u) or u for u in others)
 
 
 def room_people(room: RoomInfo) -> dict[str, str]:
@@ -568,6 +628,8 @@ def _purge(conn: sqlite3.Connection, msg_id: str) -> list[str]:
     paths = [r["path"] for r in conn.execute("SELECT path FROM files WHERE message_id = ?", (msg_id,))]
     conn.execute("DELETE FROM reactions WHERE message_id = ?", (msg_id,))
     conn.execute("DELETE FROM files WHERE message_id = ?", (msg_id,))
+    conn.execute("DELETE FROM pins WHERE message_id = ?", (msg_id,))
+    conn.execute("DELETE FROM saved WHERE message_id = ?", (msg_id,))
     conn.execute("DELETE FROM mentions WHERE seq = (SELECT seq FROM messages WHERE id = ?)", (msg_id,))
     conn.execute("DELETE FROM messages WHERE id = ?", (msg_id,))
     return paths
@@ -593,6 +655,8 @@ def delete_message(msg_id: str) -> list[str]:
             conn.execute("DELETE FROM reactions WHERE message_id = ?", (msg_id,))
             conn.execute("DELETE FROM files WHERE message_id = ?", (msg_id,))
             conn.execute("DELETE FROM mentions WHERE seq = ?", (row["seq"],))
+            conn.execute("DELETE FROM pins WHERE message_id = ?", (msg_id,))
+            conn.execute("DELETE FROM saved WHERE message_id = ?", (msg_id,))
             conn.execute(
                 "UPDATE messages SET deleted = 1, content = '', plain = '', mentions = '[]', preview = '{}'"
                 " WHERE id = ?",
@@ -630,6 +694,22 @@ def toggle_reaction(msg_id: str, emoji: str, username: str) -> bool:
     return True
 
 
+def messages_after(room: str, seq: int) -> list[ChatMessage]:
+    """Room messages stored after `seq` (bots and scheduled posts don't come through a tab)."""
+    rows = _conn().execute(
+        "SELECT * FROM messages WHERE room = ? AND parent_id = '' AND deleted = 0 AND seq > ? ORDER BY seq",
+        (room, seq),
+    ).fetchall()
+    return build_messages(rows)
+
+
+def max_root_seq(room: str) -> int:
+    row = _conn().execute(
+        "SELECT MAX(seq) AS s FROM messages WHERE room = ? AND parent_id = ''", (room,)
+    ).fetchone()
+    return row["s"] or 0
+
+
 def max_seq(room: str | None = None) -> int:
     if room is None:
         row = _conn().execute("SELECT MAX(seq) AS s FROM messages").fetchone()
@@ -663,6 +743,11 @@ def build_messages(rows: list[sqlite3.Row]) -> list[ChatMessage]:
     ):
         files.setdefault(r["message_id"], []).append(_attachment(r))
 
+    pinned_ids = {
+        r["message_id"]
+        for r in conn.execute("SELECT message_id FROM pins WHERE message_id IN (SELECT value FROM json_each(?))", (param,))
+    }
+    statuses = {u: active_status(p)[0] for u, p in load_profiles().items()}
     roots = _ids_param(r["id"] for r in rows if not r["parent_id"])
     stats: dict[str, dict[str, Any]] = {}
     for r in conn.execute(
@@ -702,6 +787,8 @@ def build_messages(rows: list[sqlite3.Row]) -> list[ChatMessage]:
                 is_system=bool(r["is_system"]),
                 mentions=json.loads(r["mentions"] or "[]"),
                 avatar_seed=seeds.get(r["sender"], r["sender"]),
+                status_emoji=statuses.get(r["sender"], ""),
+                pinned=r["id"] in pinned_ids,
                 attachments=files.get(r["id"], []),
                 reactions=[
                     Reaction(
@@ -805,8 +892,9 @@ def unread_counts(username: str, rooms: Iterable[str]) -> tuple[dict[str, int], 
         for r in conn.execute("SELECT room, seq FROM reads WHERE username = ? AND room != '*'", (username,))
     }
     allowed = set(rooms)
+    muted = muted_rooms(username)
     unread: dict[str, int] = {}
-    for room in allowed:
+    for room in allowed - muted:
         # Counts only the unread end of the room (messages_room index).
         n = conn.execute(
             "SELECT COUNT(*) FROM messages WHERE room = ? AND parent_id = '' AND seq > ?"
@@ -825,8 +913,8 @@ def unread_counts(username: str, rooms: Iterable[str]) -> tuple[dict[str, int], 
         room = r["room"]
         if room not in allowed or r["seq"] <= reads.get(room, base):
             continue
-        if r["username"] == EVERYONE and room not in reads:
-            continue  # @here reaches people who have opened the room
+        if r["username"] == EVERYONE and (room not in reads or room in muted):
+            continue  # @here reaches people who have opened the room and not muted it
         seen.setdefault(room, set()).add(r["seq"])
     return unread, {room: len(seqs) for room, seqs in seen.items()}
 
@@ -853,10 +941,14 @@ def notifications_since(username: str, since_seq: int, rooms: dict[str, RoomInfo
         {"me": username, "everyone": EVERYONE, "since": since_seq, "direct": json.dumps(direct)},
     ).fetchall()
     names = display_names()
+    muted = muted_rooms(username)
+    left = left_rooms(username)
     items = []
     for r in rows:
         room = rooms.get(r["room"])
         if room is None or not room.can_view(username):
+            continue
+        if (r["room"] in muted or r["room"] in left) and username not in json.loads(r["mentions"] or "[]"):
             continue
         sender = names.get(r["sender"]) or r["display_name"] or r["sender"]
         text = r["plain"] or "Sent a file"
@@ -880,6 +972,225 @@ def notifications_since(username: str, since_seq: int, rooms: dict[str, RoomInfo
             }
         )
     return items
+
+
+# --- Per-person room choices, pins, saved messages, scheduled posts ---------
+
+
+def room_pref(username: str, room: str) -> tuple[bool, bool]:
+    """(left, muted)."""
+    row = _conn().execute(
+        "SELECT left_room, muted FROM room_prefs WHERE username = ? AND room = ?", (username, room)
+    ).fetchone()
+    return (bool(row["left_room"]), bool(row["muted"])) if row else (False, False)
+
+
+def set_room_pref(username: str, room: str, *, left: bool | None = None, muted: bool | None = None):
+    was_left, was_muted = room_pref(username, room)
+    _conn().execute(
+        "INSERT OR REPLACE INTO room_prefs(username, room, left_room, muted) VALUES (?, ?, ?, ?)",
+        (username, room, int(was_left if left is None else left), int(was_muted if muted is None else muted)),
+    )
+
+
+def muted_rooms(username: str) -> set[str]:
+    return {
+        r["room"]
+        for r in _conn().execute("SELECT room FROM room_prefs WHERE username = ? AND muted = 1", (username,))
+    }
+
+
+def left_rooms(username: str) -> set[str]:
+    return {
+        r["room"]
+        for r in _conn().execute("SELECT room FROM room_prefs WHERE username = ? AND left_room = 1", (username,))
+    }
+
+
+def toggle_pin(room: str, msg_id: str, username: str) -> bool:
+    with _tx() as conn:
+        if conn.execute("DELETE FROM pins WHERE room = ? AND message_id = ?", (room, msg_id)).rowcount:
+            return False
+        conn.execute(
+            "INSERT INTO pins(room, message_id, pinned_by, created_at) VALUES (?, ?, ?, ?)",
+            (room, msg_id, username, time.time()),
+        )
+    return True
+
+
+def _items(rows: list[sqlite3.Row], viewer: str) -> list[SavedItem]:
+    rooms = load_rooms()
+    names = display_names()
+    items = []
+    for r in rows:
+        room = rooms.get(r["room"])
+        if room is None or not room.can_view(viewer):
+            continue
+        items.append(
+            SavedItem(
+                message_id=r["id"],
+                room=r["room"],
+                room_title=room_title(room, viewer, names),
+                parent_id=r["parent_id"],
+                display_name=names.get(r["sender"]) or r["display_name"] or r["sender"],
+                text=" ".join(r["plain"].split())[:200] or "(file)",
+                created_at=r["created_at"],
+                remind_at=r["remind_at"] if "remind_at" in r.keys() else 0.0,
+            )
+        )
+    return items
+
+
+def pinned(room: str, viewer: str) -> list[SavedItem]:
+    rows = _conn().execute(
+        "SELECT m.* FROM pins p JOIN messages m ON m.id = p.message_id WHERE p.room = ? ORDER BY p.created_at DESC",
+        (room,),
+    ).fetchall()
+    return _items(rows, viewer)
+
+
+def saved_ids(username: str) -> list[str]:
+    return [
+        r["message_id"]
+        for r in _conn().execute("SELECT message_id FROM saved WHERE username = ?", (username,))
+    ]
+
+
+def set_saved(username: str, msg_id: str, saved: bool, remind_at: float = 0.0):
+    conn = _conn()
+    if saved:
+        conn.execute(
+            "INSERT OR REPLACE INTO saved(username, message_id, created_at, remind_at) VALUES (?, ?, ?, ?)",
+            (username, msg_id, time.time(), remind_at),
+        )
+    else:
+        conn.execute("DELETE FROM saved WHERE username = ? AND message_id = ?", (username, msg_id))
+
+
+def saved_items(username: str) -> list[SavedItem]:
+    rows = _conn().execute(
+        "SELECT m.*, s.remind_at AS remind_at FROM saved s JOIN messages m ON m.id = s.message_id"
+        " WHERE s.username = ? ORDER BY s.created_at DESC",
+        (username,),
+    ).fetchall()
+    return _items(rows, username)
+
+
+def due_reminders(username: str) -> list[SavedItem]:
+    """Reminders of `username` that are due; each comes back once."""
+    now = time.time()
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT m.*, s.remind_at AS remind_at FROM saved s JOIN messages m ON m.id = s.message_id"
+        " WHERE s.username = ? AND s.remind_at > 0 AND s.remind_at <= ?",
+        (username, now),
+    ).fetchall()
+    if rows:
+        conn.execute(
+            "UPDATE saved SET remind_at = 0 WHERE username = ? AND remind_at > 0 AND remind_at <= ?", (username, now)
+        )
+    return _items(rows, username)
+
+
+def add_scheduled(username: str, room: str, text: str, due_at: float) -> str:
+    item_id = uuid.uuid4().hex
+    _conn().execute(
+        "INSERT INTO scheduled(id, username, room, text, due_at) VALUES (?, ?, ?, ?, ?)",
+        (item_id, username, room, text, due_at),
+    )
+    return item_id
+
+
+def cancel_scheduled(item_id: str, username: str):
+    _conn().execute("DELETE FROM scheduled WHERE id = ? AND username = ?", (item_id, username))
+
+
+def scheduled_items(username: str) -> list[ScheduledItem]:
+    rooms = load_rooms()
+    names = display_names()
+    items = []
+    for r in _conn().execute("SELECT * FROM scheduled WHERE username = ? ORDER BY due_at", (username,)):
+        room = rooms.get(r["room"])
+        if room is not None:
+            items.append(
+                ScheduledItem(
+                    id=r["id"], room=r["room"], room_title=room_title(room, username, names),
+                    text=" ".join(r["text"].split())[:200], due_at=r["due_at"],
+                )
+            )
+    return items
+
+
+def due_scheduled() -> list[sqlite3.Row]:
+    return _conn().execute("SELECT * FROM scheduled WHERE due_at <= ? ORDER BY due_at", (time.time(),)).fetchall()
+
+
+def remove_scheduled(item_id: str):
+    _conn().execute("DELETE FROM scheduled WHERE id = ?", (item_id,))
+
+
+# --- Webhooks, audit log, retention ------------------------------------------
+
+
+def add_webhook(room: str, name: str, created_by: str) -> str:
+    token = uuid.uuid4().hex + uuid.uuid4().hex
+    _conn().execute(
+        "INSERT INTO webhooks(token, room, name, created_by, created_at) VALUES (?, ?, ?, ?, ?)",
+        (token, room, name, created_by, time.time()),
+    )
+    return token
+
+
+def room_webhooks(room: str) -> list[WebhookInfo]:
+    return [
+        WebhookInfo(token=r["token"], name=r["name"], created_by=r["created_by"])
+        for r in _conn().execute("SELECT * FROM webhooks WHERE room = ? ORDER BY created_at", (room,))
+    ]
+
+
+def delete_webhook(room: str, token: str):
+    _conn().execute("DELETE FROM webhooks WHERE room = ? AND token = ?", (room, token))
+
+
+def webhook(token: str) -> sqlite3.Row | None:
+    return _conn().execute("SELECT * FROM webhooks WHERE token = ?", (token,)).fetchone()
+
+
+def audit(actor: str, action: str, target: str = "", detail: str = ""):
+    _conn().execute(
+        "INSERT INTO audit(at, actor, action, target, detail) VALUES (?, ?, ?, ?, ?)",
+        (time.time(), actor, action, target, detail[:500]),
+    )
+
+
+def audit_entries(limit: int = 300) -> list[AuditEntry]:
+    return [
+        AuditEntry(at=r["at"], actor=r["actor"], action=r["action"], target=r["target"], detail=r["detail"])
+        for r in _conn().execute("SELECT * FROM audit ORDER BY id DESC LIMIT ?", (limit,))
+    ]
+
+
+def purge_older_than(days: int) -> int:
+    """Delete messages (with their threads and files) older than `days` days."""
+    cutoff = time.time() - days * 86400
+    conn = _conn()
+    ids = [
+        r["id"]
+        for r in conn.execute(
+            "SELECT id FROM messages WHERE created_at > 0 AND created_at < ? AND parent_id = ''"
+            " AND NOT EXISTS (SELECT 1 FROM messages c WHERE c.parent_id = messages.id AND c.created_at >= ?)",
+            (cutoff, cutoff),
+        )
+    ]
+    paths: list[str] = []
+    with _tx() as tx:
+        for msg_id in ids:
+            for r in tx.execute("SELECT id FROM messages WHERE parent_id = ?", (msg_id,)).fetchall():
+                paths += _purge(tx, r["id"])
+            paths += _purge(tx, msg_id)
+    for path in paths:
+        _remove_file(path)
+    return len(ids)
 
 
 # --- Search -------------------------------------------------------------------
@@ -1008,20 +1319,34 @@ def export_all() -> dict[str, Any]:
         "messages_by_room": messages,
         "permissions": get_setting("permissions"),
         "approved_users": get_setting("approved_users", {}),
+        "admins": get_setting("admins", []),
+        "retention_days": get_setting("retention_days", 0),
+        **{table: [dict(r) for r in conn.execute(f"SELECT * FROM {table}")] for table in _EXTRA_TABLES},
     }
 
 
+# Tables an export carries as plain rows.
+_EXTRA_TABLES = ("room_prefs", "pins", "saved", "scheduled", "webhooks")
+
+
 def _clear_tables(conn: sqlite3.Connection):
-    for table in ("rooms", "profiles", "settings", "messages", "reactions", "files", "mentions", "reads"):
+    for table in (
+        "rooms", "profiles", "settings", "messages", "reactions", "files", "mentions", "reads",
+        "room_prefs", "pins", "saved", "scheduled", "webhooks",
+    ):
         conn.execute(f"DELETE FROM {table}")
     if _fts_enabled.get(str(db_path())):
         conn.execute("INSERT INTO messages_fts(messages_fts) VALUES ('delete-all')")
 
 
 def clear_all():
-    """Forget rooms, people, messages and settings (logins stay)."""
+    """Forget rooms, people, messages and settings (logins, admins and retention stay)."""
+    kept = {key: get_setting(key) for key in ("admins", "retention_days")}
     with _tx() as conn:
         _clear_tables(conn)
+        for key, value in kept.items():
+            if value:
+                conn.execute("INSERT INTO settings(key, value) VALUES (?, ?)", (key, json.dumps(value)))
     shutil.rmtree(upload_root(), ignore_errors=True)
     _cache.pop(str(db_path()), None)
 
@@ -1038,6 +1363,11 @@ def import_all(data: dict[str, Any]):
     profiles = [UserProfile(**p) for p in data.get("profiles", [])]
     permissions = data.get("permissions")
     approved = {str(k): bool(v) for k, v in (data.get("approved_users") or {}).items()}
+    kept = {
+        "admins": data["admins"] if "admins" in data else get_setting("admins", []),
+        "retention_days": data["retention_days"] if "retention_days" in data else get_setting("retention_days", 0),
+    }
+    extra = {table: [dict(r) for r in data.get(table) or []] for table in _EXTRA_TABLES}
     names = {p.username: (p.nickname or p.username) for p in profiles}
     messages = []
     for room_name, msgs in (data.get("messages_by_room") or {}).items():
@@ -1097,6 +1427,8 @@ def import_all(data: dict[str, Any]):
         if permissions:
             conn.execute("INSERT INTO settings(key, value) VALUES ('permissions', ?)", (json.dumps(permissions),))
         conn.execute("INSERT INTO settings(key, value) VALUES ('approved_users', ?)", (json.dumps(approved),))
+        for key, value in kept.items():
+            conn.execute("INSERT INTO settings(key, value) VALUES (?, ?)", (key, json.dumps(value)))
         for msg in messages:
             msg_id, _seq = _insert_message(conn, **msg["fields"])
             for emoji, user in msg["reactions"]:
@@ -1119,6 +1451,14 @@ def import_all(data: dict[str, Any]):
                         int(att.get("size") or 0),
                         msg["fields"]["created_at"] or now,
                     ),
+                )
+        for table, rows in extra.items():
+            for row in rows:
+                columns = ", ".join(c for c in row if c.isidentifier())
+                marks = ", ".join("?" for c in row if c.isidentifier())
+                conn.execute(
+                    f"INSERT OR IGNORE INTO {table}({columns}) VALUES ({marks})",
+                    [v for c, v in row.items() if c.isidentifier()],
                 )
     _cache.pop(str(db_path()), None)
 

@@ -4,7 +4,21 @@ from pydantic import BaseModel
 import datetime
 
 
-class UserProfile(BaseModel):
+class Stored(BaseModel):
+    """Models kept in Reflex's pickled states: Reflex's schema check skips `_` vars,
+    so objects pickled before a field existed come back without it."""
+
+    def __setstate__(self, state):
+        # Rooms pickled (Reflex disk/redis state) before a field existed lack it;
+        # fill in the default so attribute access and serialization keep working.
+        values = state.get("__dict__", {})
+        for name, field in type(self).model_fields.items():
+            if name not in values:
+                values[name] = field.get_default(call_default_factory=True)
+        super().__setstate__(state)
+
+
+class UserProfile(Stored):
     username: str
     email: str = ""
     nickname: str = ""
@@ -15,6 +29,12 @@ class UserProfile(BaseModel):
     token: str = ""
     is_approved: bool = False
     avatar_url: str = ""
+    status_emoji: str = ""
+    status_text: str = ""
+    # When the status clears, and until when notifications are off (Unix time; 0 = never set).
+    status_until: float = 0.0
+    dnd_until: float = 0.0
+    timezone: str = ""
 
 
 class MessagePart(BaseModel):
@@ -45,7 +65,7 @@ class Reaction(BaseModel):
     names: str = ""
 
 
-class ChatMessage(BaseModel):
+class ChatMessage(Stored):
     id: str
     sender: str
     display_name: str = ""
@@ -73,6 +93,9 @@ class ChatMessage(BaseModel):
     # Markdown shown in the bubble, mentions turned into `#mention-` links.
     render: str = ""
     avatar_seed: str = ""
+    # The sender's status emoji, and whether the message is pinned in its room.
+    status_emoji: str = ""
+    pinned: bool = False
     mentions: list[str] = []
     attachments: list[Attachment] = []
     reactions: list[Reaction] = []
@@ -80,6 +103,50 @@ class ChatMessage(BaseModel):
     last_reply_at: float = 0.0
     # Avatar seeds of the latest people who replied in the thread.
     reply_seeds: list[str] = []
+
+
+class SavedItem(BaseModel):
+    """A pinned or saved message, or one with a reminder, shown in a list."""
+
+    message_id: str
+    room: str
+    room_title: str
+    parent_id: str = ""
+    display_name: str
+    text: str
+    created_at: float = 0.0
+    remind_at: float = 0.0
+
+
+class ScheduledItem(BaseModel):
+    id: str
+    room: str
+    room_title: str
+    text: str
+    due_at: float
+
+
+class RoomBrowseItem(BaseModel):
+    name: str
+    title: str
+    description: str = ""
+    archived: bool = False
+    joined: bool = True
+    can_manage: bool = False
+
+
+class AuditEntry(BaseModel):
+    at: float
+    actor: str
+    action: str
+    target: str = ""
+    detail: str = ""
+
+
+class WebhookInfo(BaseModel):
+    token: str
+    name: str
+    created_by: str = ""
 
 
 class SearchHit(BaseModel):
@@ -114,10 +181,11 @@ class ChatMessageLog(BaseModel):
     """Wraps a chat message with its room origin for admin viewing."""
 
     room_name: str
+    room_title: str = ""
     message: ChatMessage
 
 
-class RoomInfo(BaseModel):
+class RoomInfo(Stored):
     name: str
     participant_count: int = 0
     description: str = ""
@@ -125,17 +193,14 @@ class RoomInfo(BaseModel):
     # Private rooms are visible only to their creator and `allowed_members` (usernames).
     is_private: bool = False
     allowed_members: list[str] = []
-    # Direct message between `created_by` and the single entry of `allowed_members`.
+    # Direct message among `created_by` and `allowed_members` (two people, or a group).
     is_direct: bool = False
-
-    def __setstate__(self, state):
-        # Rooms pickled (Reflex disk/redis state) before a field existed lack it;
-        # fill in the default so attribute access and serialization keep working.
-        values = state.get("__dict__", {})
-        for name, field in type(self).model_fields.items():
-            if name not in values:
-                values[name] = field.get_default(call_default_factory=True)
-        super().__setstate__(state)
+    # Display name after a rename; `name` stays the room's permanent id.
+    title: str = ""
+    # Read-only and out of the sidebar; found under Browse rooms.
+    archived: bool = False
+    # Bumped to shut someone out: tabs still linked to the old shared state get nothing more.
+    token_rev: int = 0
 
     def can_view(self, username: str) -> bool:
         return (
@@ -178,11 +243,12 @@ class IncomingCall(BaseModel):
 class PermissionConfig(BaseModel):
     """Snapshot of admin permissions toggles for backup/restore."""
 
-    google_requires_approval: bool = True
-    guest_requires_approval: bool = True
-    guest_can_create_room: bool = False
-    guest_can_mention_users: bool = False
-    guest_can_view_profiles: bool = False
-    google_can_create_room: bool = False
-    google_can_mention_users: bool = False
-    google_can_view_profiles: bool = False
+    # Everything is open until an admin tightens it.
+    google_requires_approval: bool = False
+    guest_requires_approval: bool = False
+    guest_can_create_room: bool = True
+    guest_can_mention_users: bool = True
+    guest_can_view_profiles: bool = True
+    google_can_create_room: bool = True
+    google_can_mention_users: bool = True
+    google_can_view_profiles: bool = True

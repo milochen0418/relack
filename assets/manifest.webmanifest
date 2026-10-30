@@ -1,0 +1,9 @@
+{
+  "name": "Relack",
+  "short_name": "Relack",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#7c3aed",
+  "icons": [{"src": "/relack-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}]
+}

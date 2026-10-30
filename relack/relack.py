@@ -10,6 +10,7 @@ from relack.components.people_views import people_view
 from relack.states.people_state import PeopleState
 from reflex_ddns_auth.intent import install_intent_host, intent
 from relack.components.chat_views import call_keepalive
+from relack import tasks
 
 app = rx.App(
     api_transformer=[auth_routes, serve_pages_without_slash_redirect],
@@ -19,11 +20,16 @@ app = rx.App(
     head_components=[
         rx.el.link(rel="preconnect", href="https://fonts.googleapis.com"),
         rx.el.link(rel="preconnect", href="https://fonts.gstatic.com", cross_origin=""),
+        rx.el.link(rel="manifest", href="/manifest.webmanifest"),
+        rx.el.link(rel="apple-touch-icon", href="/relack-icon.svg"),
+        rx.el.meta(name="theme-color", content="#7c3aed"),
+        rx.el.meta(name="apple-mobile-web-app-capable", content="yes"),
     ],
 )
 # Intent dialogs (calls, pickers, profiles) live above every page, so a call in
 # the tray keeps running while the user moves between pages.
 install_intent_host(app)
+app.register_lifespan_task(tasks.run)
 app.extra_app_wraps[(8, "RelackCallKeepalive")] = lambda stateful: rx.fragment(call_keepalive())
 
 app.add_page(index, route="/", title="Relack - Reflex Real-Time Chat")

@@ -8,14 +8,21 @@ from relack.components.client_script import CHAT_CSS, CLIENT_JS
 from relack.emoji import EMOJI, QUICK_REACTIONS
 from relack.states.shared_state import GlobalLobbyState, LocalUIState, RoomState
 from relack.states.auth_state import AuthState
-from relack.states.chat_state import MAX_UPLOAD_BYTES, ChatUIState, ComposerState, SearchState, UnreadState
+from relack.i18n import T, LangState
+from relack.states.chat_state import (
+    MAX_UPLOAD_BYTES, ChatUIState, ComposerState, LaterState, RoomAdminState, SearchState,
+    StatusState, UnreadState,
+)
 from relack.models import (
     Attachment,
     ChatMessage,
     FileHit,
     IncomingCall,
     Reaction,
+    RoomBrowseItem,
     RoomInfo,
+    SavedItem,
+    ScheduledItem,
     SearchHit,
     UserProfile,
 )
@@ -37,6 +44,7 @@ class CreateRoomState(rx.State):
     description: str = ""
     is_open: bool = False
     is_private: bool = False
+    is_group: bool = False
     # Members picked via the `people.pick` intent; only used when `is_private`.
     members: list[UserProfile] = []
 
@@ -54,11 +62,16 @@ class CreateRoomState(rx.State):
         self.is_private = is_private
 
     @rx.event
+    def set_is_group(self, is_group: bool):
+        self.is_group = is_group
+
+    @rx.event
     def toggle(self):
         self.is_open = not self.is_open
         self.name = ""
         self.description = ""
         self.is_private = False
+        self.is_group = False
         self.members = []
 
     @rx.event
@@ -83,6 +96,10 @@ class CreateRoomState(rx.State):
 
     @rx.event
     def create(self):
+        if self.is_group:
+            yield GlobalLobbyState.open_group_message([m.username for m in self.members])
+            self.is_open = False
+            return
         yield GlobalLobbyState.create_room(
             self.name,
             self.description,
@@ -108,6 +125,10 @@ def room_card(room: RoomInfo) -> rx.Component:
                                 "font-bold text-gray-900 truncate",
                                 "font-semibold text-gray-900 truncate",
                             ),
+                        ),
+                        rx.cond(
+                            UnreadState.muted.contains(room.name),
+                            rx.icon("bell-off", class_name="h-3.5 w-3.5 text-gray-400 shrink-0"),
                         ),
                         rx.cond(
                             room.is_direct,
@@ -161,8 +182,8 @@ def room_card(room: RoomInfo) -> rx.Component:
             class_name="w-full text-left",
         ),
         rx.cond(
-            (AuthState.user.username == room.created_by)
-            & (AuthState.user.username != ""),
+            ((AuthState.user.username == room.created_by) & (AuthState.user.username != ""))
+            | AuthState.is_admin,
             rx.el.button(
                 rx.icon("trash-2", class_name="h-4 w-4"),
                 on_click=lambda: GlobalLobbyState.delete_room(room.name),
@@ -212,7 +233,7 @@ def private_members_picker() -> rx.Component:
             ),
             rx.el.button(
                 rx.icon("user-plus", class_name="h-4 w-4 mr-1"),
-                "Add people",
+                T("Add people"),
                 type="button",
                 on_click=Intent.start(
                     "relack", "people.pick", on_result=CreateRoomState.add_member
@@ -240,9 +261,9 @@ def create_room_modal() -> rx.Component:
         CreateRoomState.is_open,
         rx.el.div(
             rx.el.div(
-                rx.el.h2("Create New Room", class_name="text-lg font-bold mb-4"),
+                rx.el.h2(T("Create New Room"), class_name="text-lg font-bold mb-4"),
                 rx.el.label(
-                    "Room Name",
+                    T("Room Name"),
                     class_name="text-sm font-medium text-gray-700 mb-1 block",
                 ),
                 rx.el.input(
@@ -251,7 +272,7 @@ def create_room_modal() -> rx.Component:
                     class_name="w-full px-3 py-2 border rounded-lg mb-4",
                 ),
                 rx.el.label(
-                    "Description",
+                    T("Description"),
                     class_name="text-sm font-medium text-gray-700 mb-1 block",
                 ),
                 rx.el.input(
@@ -266,18 +287,28 @@ def create_room_modal() -> rx.Component:
                         color_scheme="violet",
                     ),
                     rx.icon("lock", class_name="h-4 w-4 text-gray-500"),
-                    rx.el.span("Private room", class_name="text-sm font-medium text-gray-700"),
+                    rx.el.span(T("Private room"), class_name="text-sm font-medium text-gray-700"),
                     class_name="flex items-center gap-2 mb-4 cursor-pointer select-none",
                 ),
-                rx.cond(CreateRoomState.is_private, private_members_picker()),
+                rx.el.label(
+                    rx.checkbox(
+                        checked=CreateRoomState.is_group,
+                        on_change=CreateRoomState.set_is_group,
+                        color_scheme="violet",
+                    ),
+                    rx.icon("users", class_name="h-4 w-4 text-gray-500"),
+                    rx.el.span(T("Group message"), class_name="text-sm font-medium text-gray-700"),
+                    class_name="flex items-center gap-2 mb-4 cursor-pointer select-none",
+                ),
+                rx.cond(CreateRoomState.is_private | CreateRoomState.is_group, private_members_picker()),
                 rx.el.div(
                     rx.el.button(
-                        "Cancel",
+                        T("Cancel"),
                         on_click=CreateRoomState.toggle,
                         class_name="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg mr-2",
                     ),
                     rx.el.button(
-                        "Create Room",
+                        T("Create Room"),
                         on_click=CreateRoomState.create,
                         class_name="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700",
                     ),
@@ -311,14 +342,14 @@ def notification_settings() -> rx.Component:
             ),
         ),
         rx.popover.content(
-            rx.el.h4("Notifications", class_name="text-sm font-bold text-gray-900 mb-1"),
+            rx.el.h4(T("Notifications"), class_name="text-sm font-bold text-gray-900 mb-1"),
             rx.el.p(
-                "For direct messages, @mentions and replies in your threads.",
+                T("For direct messages, @mentions and replies in your threads."),
                 class_name="text-xs text-gray-500 mb-3",
             ),
             rx.el.div(
                 rx.el.div(
-                    rx.el.span("Desktop notifications", class_name="text-sm font-medium text-gray-800"),
+                    rx.el.span(T("Desktop notifications"), class_name="text-sm font-medium text-gray-800"),
                     rx.el.span(
                         rx.match(
                             UnreadState.permission,
@@ -344,7 +375,7 @@ def notification_settings() -> rx.Component:
                     (
                         "default",
                         rx.el.button(
-                            "Enable",
+                            T("Enable"),
                             on_click=rx.call_script(
                                 "Notification.requestPermission()", callback=UnreadState.set_permission
                             ),
@@ -357,7 +388,7 @@ def notification_settings() -> rx.Component:
             ),
             rx.el.div(
                 rx.el.div(
-                    rx.el.span("Sound", class_name="text-sm font-medium text-gray-800"),
+                    rx.el.span(T("Sound"), class_name="text-sm font-medium text-gray-800"),
                     rx.el.span(rx.cond(UnreadState.sound == "off", "Off", "On"), class_name="text-xs text-gray-500"),
                     class_name="flex flex-col",
                 ),
@@ -385,7 +416,7 @@ def search_box() -> rx.Component:
             rx.el.input(
                 id="relack-search",
                 name="q",
-                placeholder="Search messages, files, people",
+                placeholder=T("Search messages, files, people"),
                 default_value=SearchState.query,
                 on_change=SearchState.set_query,
                 auto_complete="off",
@@ -400,12 +431,68 @@ def search_box() -> rx.Component:
     )
 
 
+def sidebar_link(icon: str, label: str, view: str, on_click) -> rx.Component:
+    return rx.el.button(
+        rx.icon(icon, class_name="h-5 w-5 mr-2"),
+        T(label),
+        on_click=on_click,
+        aria_label=label,
+        class_name=rx.cond(
+            LocalUIState.main_view == view,
+            "w-full flex items-center px-3 py-2 mb-1 rounded-xl text-sm font-semibold bg-violet-50 text-violet-600",
+            "w-full flex items-center px-3 py-2 mb-1 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors",
+        ),
+    )
+
+
+def status_menu() -> rx.Component:
+    choice = "px-2 py-1 text-xs rounded-lg bg-gray-50 hover:bg-violet-50 text-gray-700"
+    return rx.popover.root(
+        rx.popover.trigger(
+            rx.el.button(
+                rx.cond(StatusState.emoji != "", rx.el.span(StatusState.emoji, class_name="mr-2"), rx.icon("smile", class_name="h-5 w-5 mr-2")),
+                rx.cond(StatusState.text != "", StatusState.text, T("Set a status")),
+                rx.cond(StatusState.dnd_until > 0, rx.icon("bell-off", class_name="h-4 w-4 ml-auto text-rose-500")),
+                aria_label="Set a status",
+                on_click=StatusState.load,
+                class_name="w-full flex items-center px-3 py-2 mb-4 rounded-xl text-sm text-gray-500 hover:bg-gray-50 truncate",
+            ),
+        ),
+        rx.popover.content(
+            rx.el.input(
+                default_value=StatusState.text,
+                on_change=StatusState.set_text,
+                placeholder="In a meeting",
+                aria_label="Status text",
+                class_name="w-full px-3 py-2 mb-2 rounded-lg border border-gray-200 text-sm",
+            ),
+            rx.el.div(
+                *[
+                    rx.popover.close(rx.el.button(e, on_click=StatusState.save(e), aria_label="Status " + e, class_name="size-8 text-lg rounded hover:bg-gray-100"))
+                    for e in ("💬", "📅", "🌴", "🤒", "🏠", "🎧")
+                ],
+                rx.popover.close(rx.el.button(T("Clear"), on_click=StatusState.clear, class_name=choice + " ml-auto")),
+                class_name="flex items-center gap-1 mb-3",
+            ),
+            rx.el.p(T("Pause notifications"), class_name="text-xs font-semibold text-gray-500 mb-1"),
+            rx.el.div(
+                rx.popover.close(rx.el.button(T("1 hour"), on_click=StatusState.set_dnd(3600), class_name=choice)),
+                rx.popover.close(rx.el.button(T("Until tomorrow"), on_click=StatusState.set_dnd(57600), class_name=choice)),
+                rx.popover.close(rx.el.button(T("Resume"), on_click=StatusState.set_dnd(0), class_name=choice)),
+                class_name="flex gap-1",
+            ),
+            side="right",
+            class_name="w-72",
+        ),
+    )
+
+
 def sidebar() -> rx.Component:
     return rx.el.aside(
         rx.el.div(
             rx.el.button(
                 rx.icon("users", class_name="h-5 w-5 mr-2"),
-                "People",
+                T("People"),
                 on_click=[LocalUIState.show_people, PeopleState.load_members],
                 class_name=rx.cond(
                     LocalUIState.main_view == "people",
@@ -413,16 +500,22 @@ def sidebar() -> rx.Component:
                     "w-full flex items-center px-3 py-2 mb-4 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors",
                 ),
             ),
+            sidebar_link("compass", "Browse rooms", "browse", [LocalUIState.show_browse, RoomAdminState.load_browse]),
+            sidebar_link("bookmark", "Saved & scheduled", "later", [LocalUIState.show_later, LaterState.load]),
+            status_menu(),
             rx.el.div(
-                rx.el.h2("Rooms", class_name="text-lg font-bold text-gray-800"),
+                rx.el.h2(T("Rooms"), class_name="text-lg font-bold text-gray-800"),
                 rx.el.div(
                     notification_settings(),
-                    rx.el.button(
-                        rx.icon("plus", class_name="h-5 w-5"),
-                        on_click=CreateRoomState.toggle,
-                        title="New room",
-                        aria_label="New room",
-                        class_name="p-1.5 rounded-lg bg-violet-50 text-violet-600 hover:bg-violet-100 transition-colors",
+                    rx.cond(
+                        UnreadState.can_create_room,
+                        rx.el.button(
+                            rx.icon("plus", class_name="h-5 w-5"),
+                            on_click=CreateRoomState.toggle,
+                            title="New room",
+                            aria_label="New room",
+                            class_name="p-1.5 rounded-lg bg-violet-50 text-violet-600 hover:bg-violet-100 transition-colors",
+                        ),
                     ),
                     class_name="flex items-center gap-1",
                 ),
@@ -438,8 +531,8 @@ def sidebar() -> rx.Component:
         create_room_modal(),
         class_name=rx.cond(
             LocalUIState.is_sidebar_open,
-            "w-72 bg-white border-r border-gray-200 h-full flex flex-col transition-all duration-300 ease-in-out shrink-0",
-            "w-0 overflow-hidden h-full flex flex-col transition-all duration-300 ease-in-out shrink-0",
+            "relack-sidebar w-72 bg-white border-r border-gray-200 h-full flex flex-col transition-all duration-300 ease-in-out shrink-0",
+            "relack-sidebar-closed w-0 overflow-hidden h-full flex flex-col transition-all duration-300 ease-in-out shrink-0",
         ),
     )
 
@@ -540,7 +633,7 @@ def message_body(msg: ChatMessage) -> rx.Component:
     return rx.fragment(
         rx.cond(
             msg.deleted,
-            rx.el.p("This message was deleted.", class_name="text-sm italic opacity-70"),
+            rx.el.p(T("This message was deleted."), class_name="text-sm italic opacity-70"),
             rx.cond(msg.render != "", message_markdown(msg.render)),
         ),
         rx.cond(
@@ -607,6 +700,44 @@ def reaction_chip(msg: ChatMessage, reaction: Reaction) -> rx.Component:
     )
 
 
+def message_menu(msg: ChatMessage) -> rx.Component:
+    """The ⋯ menu: pin, save, remind, forward, copy link."""
+
+    def item(icon, label, **props):
+        return rx.popover.close(
+            rx.el.button(
+                rx.icon(icon, class_name="h-4 w-4 mr-2"),
+                label,
+                type="button",
+                class_name="w-full flex items-center px-2 py-1.5 text-sm rounded-md text-gray-700 hover:bg-gray-100",
+                **props,
+            )
+        )
+
+    return rx.popover.root(
+        rx.popover.trigger(
+            rx.el.button(
+                rx.icon("ellipsis", class_name="h-4 w-4"),
+                type="button",
+                title="More",
+                aria_label="More actions",
+                class_name=_ICON_BUTTON,
+            ),
+        ),
+        rx.popover.content(
+            item("pin", rx.cond(msg.pinned, T("Unpin"), T("Pin to room")), aria_label="Pin to room", on_click=RoomState.toggle_pin(msg.id)),
+            item("bookmark", T("Save for later"), aria_label="Save for later", on_click=LaterState.toggle_saved(msg.id)),
+            item("clock", T("Remind me in 1 hour"), aria_label="Remind me in 1 hour", on_click=LaterState.remind(msg.id, 3600)),
+            item("clock", T("Remind me tomorrow"), aria_label="Remind me tomorrow", on_click=LaterState.remind(msg.id, 86400)),
+            item("forward", T("Forward"), aria_label="Forward", on_click=ChatUIState.ask_forward(msg.id)),
+            item("link", T("Copy link"), aria_label="Copy link", custom_attrs={"data-relack-copy": msg.id}),
+            side="top",
+            align="end",
+            class_name="w-56 p-1",
+        ),
+    )
+
+
 def message_actions(msg: ChatMessage, is_me, in_thread: bool) -> rx.Component:
     """Toolbar shown when hovering a message."""
     return rx.el.div(
@@ -635,6 +766,18 @@ def message_actions(msg: ChatMessage, is_me, in_thread: bool) -> rx.Component:
                     class_name=_ICON_BUTTON,
                 )
             ]
+        ),
+        message_menu(msg),
+        rx.cond(
+            AuthState.is_admin & ~is_me,
+            rx.el.button(
+                rx.icon("trash-2", class_name="h-4 w-4"),
+                type="button",
+                on_click=ChatUIState.ask_delete(msg.id),
+                title="Delete message",
+                aria_label="Delete message",
+                class_name=_ICON_BUTTON + " hover:text-red-600",
+            ),
         ),
         rx.cond(
             is_me,
@@ -705,16 +848,16 @@ def edit_form(msg: ChatMessage) -> rx.Component:
             class_name="block w-full min-w-[18rem] resize-none rounded-xl border border-violet-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-violet-500/30",
         ),
         rx.el.div(
-            rx.el.span("Esc to cancel · Enter to save", class_name="text-[11px] text-gray-400"),
+            rx.el.span(T("Esc to cancel · Enter to save"), class_name="text-[11px] text-gray-400"),
             rx.el.button(
-                "Cancel",
+                T("Cancel"),
                 type="button",
                 on_click=ChatUIState.cancel_edit,
                 custom_attrs={"data-relack-cancel": "1"},
                 class_name="ml-auto px-3 py-1 text-xs font-medium rounded-lg text-gray-600 hover:bg-gray-100",
             ),
             rx.el.button(
-                "Save",
+                T("Save"),
                 type="submit",
                 class_name="px-3 py-1 text-xs font-semibold rounded-lg bg-violet-600 text-white hover:bg-violet-700",
             ),
@@ -753,7 +896,13 @@ def message_item(msg: ChatMessage, prev_at, in_thread: bool = False, anchor: str
             title=local_datetime(msg.created_at, msg.timestamp),
             class_name="text-[11px] text-gray-400",
         ),
-        rx.cond(msg.edited, rx.el.span("(edited)", class_name="text-[11px] text-gray-400")),
+        rx.cond(msg.status_emoji != "", rx.el.span(msg.status_emoji, class_name="text-xs")),
+        rx.cond(
+            msg.sender.startswith("bot:"),
+            rx.el.span("BOT", class_name="text-[9px] font-bold text-violet-600 bg-violet-100 rounded px-1"),
+        ),
+        rx.cond(msg.pinned, rx.icon("pin", class_name="h-3 w-3 text-amber-500")),
+        rx.cond(msg.edited, rx.el.span(T("(edited)"), class_name="text-[11px] text-gray-400")),
         class_name=rx.cond(
             is_me,
             "flex items-center gap-1.5 mb-1 mr-1",
@@ -891,6 +1040,38 @@ def emoji_menu(target: str) -> rx.Component:
     )
 
 
+def send_later_menu() -> rx.Component:
+    def item(label, when):
+        return rx.popover.close(
+            rx.el.button(
+                T(label),
+                type="button",
+                aria_label=label,
+                custom_attrs={"data-relack-later": when},
+                class_name="w-full text-left px-2 py-1.5 text-sm rounded-md text-gray-700 hover:bg-gray-100",
+            )
+        )
+
+    return rx.popover.root(
+        rx.popover.trigger(
+            rx.el.button(
+                rx.icon("clock", class_name="h-4 w-4"),
+                type="button",
+                title="Send later",
+                aria_label="Send later",
+                class_name=_ICON_BUTTON + " ml-auto mr-1",
+            ),
+        ),
+        rx.popover.content(
+            item("In 1 hour", "3600"),
+            item("Tomorrow at 9:00", "tomorrow"),
+            side="top",
+            align="end",
+            class_name="w-48 p-1",
+        ),
+    )
+
+
 def composer(target: str) -> rx.Component:
     """Message box of the room ("main") or the open thread ("thread")."""
     main = target == "main"
@@ -926,7 +1107,7 @@ def composer(target: str) -> rx.Component:
             rx.el.textarea(
                 name="message",
                 placeholder=(
-                    "Message " + GlobalLobbyState.room_titles[RoomState.room_name] if main else "Reply…"
+                    rx.cond(LangState.lang == "zh", "傳訊息到 ", "Message ").to(str) + GlobalLobbyState.room_titles[RoomState.room_name] if main else rx.cond(LangState.lang == "zh", "回覆…", "Reply…")
                 ),
                 rows=1,
                 aria_label="Message" if main else "Reply",
@@ -954,24 +1135,25 @@ def composer(target: str) -> rx.Component:
                     custom_attrs={"data-relack-attach": upload_id},
                     class_name=_ICON_BUTTON,
                 ),
+                *([send_later_menu()] if main else []),
                 rx.el.button(
                     rx.icon("send", class_name="h-4 w-4"),
                     type="submit",
                     title="Send",
                     aria_label="Send",
-                    class_name="ml-auto bg-violet-600 hover:bg-violet-700 text-white p-2 rounded-lg transition-all shadow-sm active:scale-95",
+                    class_name=("" if main else "ml-auto ") + "bg-violet-600 hover:bg-violet-700 text-white p-2 rounded-lg transition-all shadow-sm active:scale-95",
                 ),
-                class_name="flex items-center gap-0.5 px-2 pb-2",
+                class_name="flex flex-wrap items-center gap-0.5 px-2 pb-2",
             ),
             class_name="bg-white rounded-2xl border border-gray-200 shadow-sm focus-within:ring-2 focus-within:ring-violet-500/20 focus-within:border-violet-500 transition-all",
         ),
         rx.el.p(
-            "Enter to send · Shift+Enter for a new line · @ to mention",
+            T("Enter to send · Shift+Enter for a new line · @ to mention"),
             class_name="text-[11px] text-gray-400 mt-1 px-2",
         ),
         on_submit=RoomState.send_message if main else RoomState.send_reply,
         reset_on_submit=True,
-        custom_attrs={"data-mentions": RoomState.mention_candidates},
+        custom_attrs={"data-mentions": rx.cond(UnreadState.can_mention, RoomState.mention_candidates, "off")},
         class_name="relative w-full max-w-4xl mx-auto" if main else "relative w-full",
     )
 
@@ -1003,7 +1185,7 @@ def thread_panel() -> rx.Component:
     return rx.el.div(
         rx.el.div(
             rx.el.div(
-                rx.el.h3("Thread", class_name="text-base font-bold text-gray-900"),
+                rx.el.h3(T("Thread"), class_name="text-base font-bold text-gray-900"),
                 rx.el.span(
                     "# ",
                     GlobalLobbyState.room_titles[RoomState.room_name],
@@ -1047,7 +1229,7 @@ def thread_panel() -> rx.Component:
             class_name="flex-1 overflow-y-auto p-4 flex flex-col",
         ),
         rx.el.div(composer("thread"), class_name="p-3 border-t border-gray-200"),
-        custom_attrs={"data-relack-drop": "relack-upload-thread"},
+        custom_attrs={"data-relack-drop": "relack-upload-thread", "data-relack-thread-panel": "1"},
         class_name="w-[420px] max-w-[45vw] bg-white border-l border-gray-200 h-full flex flex-col shrink-0",
     )
 
@@ -1057,14 +1239,14 @@ def delete_dialog() -> rx.Component:
         rx.alert_dialog.content(
             rx.alert_dialog.title("Delete message"),
             rx.alert_dialog.description(
-                "Delete this message for everyone? This can't be undone.",
+                T("Delete this message for everyone? This can't be undone."),
                 size="2",
             ),
             rx.el.div(
                 rx.alert_dialog.cancel(rx.button("Cancel", variant="soft", color_scheme="gray")),
                 rx.alert_dialog.action(
                     rx.button(
-                        "Delete",
+                        T("Delete"),
                         color_scheme="red",
                         on_click=[RoomState.delete_message(ChatUIState.deleting_id), ChatUIState.cancel_delete],
                     )
@@ -1197,7 +1379,7 @@ def search_view() -> rx.Component:
     return rx.el.div(
         rx.el.div(
             rx.el.div(
-                rx.el.h2("Search results", class_name="text-xl font-bold text-gray-900"),
+                rx.el.h2(T("Search results"), class_name="text-xl font-bold text-gray-900"),
                 rx.el.p('for "', SearchState.searched, '"', class_name="text-sm text-gray-500"),
             ),
             rx.el.button(
@@ -1210,19 +1392,19 @@ def search_view() -> rx.Component:
             class_name="flex items-start justify-between mb-6",
         ),
         search_section(
-            "Messages",
+            T("Messages"),
             SearchState.messages.length(),
             rx.foreach(SearchState.messages, search_message_row),
             "No messages match.",
         ),
         search_section(
-            "Files",
+            T("Files"),
             SearchState.files.length(),
             rx.foreach(SearchState.files, search_file_row),
             "No files match.",
         ),
         search_section(
-            "People",
+            T("People"),
             SearchState.people.length(),
             rx.foreach(SearchState.people, search_person_row),
             "No people match.",
@@ -1266,7 +1448,7 @@ def users_panel() -> rx.Component:
     return rx.el.div(
         rx.el.div(
             rx.el.h3(
-                "Online Users",
+                T("Online Users"),
                 class_name="text-sm font-bold text-gray-900 uppercase tracking-wider",
             ),
             class_name="flex items-center justify-between mb-4 px-2",
@@ -1449,13 +1631,13 @@ def message_list() -> rx.Component:
             rx.cond(ChatUIState.older.length() > 0, ChatUIState.has_older, RoomState.window_has_older),
             rx.el.button(
                 rx.icon("history", class_name="h-3.5 w-3.5 mr-1.5"),
-                "Load earlier messages",
+                T("Load earlier messages"),
                 on_click=ChatUIState.load_earlier,
                 custom_attrs={"data-relack-older": "1"},
                 class_name="self-center flex items-center mb-4 px-3 py-1.5 text-xs font-medium rounded-full bg-white border border-gray-200 text-gray-600 hover:text-violet-600 hover:border-violet-200 transition-colors",
             ),
             rx.el.p(
-                "This is the very beginning of ",
+                T("This is the very beginning of "),
                 rx.el.strong(GlobalLobbyState.room_titles[RoomState.room_name]),
                 ".",
                 class_name="self-center mb-6 text-xs text-gray-400",
@@ -1474,6 +1656,231 @@ def message_list() -> rx.Component:
         id="relack-messages",
         custom_attrs={"data-room": RoomState.room_name},
         class_name="flex-1 overflow-y-auto p-6 flex flex-col",
+    )
+
+
+def pins_menu() -> rx.Component:
+    return rx.popover.root(
+        rx.popover.trigger(
+            rx.el.button(
+                rx.icon("pin", class_name="h-5 w-5"),
+                on_click=LaterState.load_pins,
+                title="Pinned messages",
+                aria_label="Pinned messages",
+                class_name="p-2 mr-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors",
+            ),
+        ),
+        rx.popover.content(
+            rx.el.h4(T("Pinned messages"), class_name="text-sm font-bold text-gray-900 mb-2"),
+            rx.cond(
+                LaterState.pins.length() > 0,
+                rx.el.div(rx.foreach(LaterState.pins, saved_row), class_name="flex flex-col gap-1 max-h-80 overflow-y-auto"),
+                rx.el.p(T("Nothing pinned yet."), class_name="text-sm text-gray-400"),
+            ),
+            class_name="w-80",
+        ),
+    )
+
+
+def saved_row(item: SavedItem) -> rx.Component:
+    return rx.el.button(
+        rx.el.span(item.display_name, " · # ", item.room_title, class_name="text-xs text-gray-500 truncate"),
+        rx.el.span(item.text, class_name="text-sm text-gray-800 line-clamp-2"),
+        rx.cond(
+            item.remind_at > 0,
+            rx.el.span("⏰ ", local_datetime(item.remind_at), class_name="text-xs text-amber-600"),
+        ),
+        on_click=ChatUIState.jump_to(item.room, item.message_id, item.parent_id),
+        class_name="w-full flex flex-col text-left p-2 rounded-lg border border-gray-100 bg-white hover:border-violet-200",
+    )
+
+
+def scheduled_row(item: ScheduledItem) -> rx.Component:
+    return rx.el.div(
+        rx.el.div(
+            rx.el.span("# ", item.room_title, " · ", local_datetime(item.due_at), class_name="text-xs text-gray-500"),
+            rx.el.span(item.text, class_name="text-sm text-gray-800 line-clamp-2"),
+            class_name="flex flex-col min-w-0 flex-1",
+        ),
+        rx.el.button(
+            rx.icon("x", class_name="h-4 w-4"),
+            on_click=LaterState.cancel_scheduled(item.id),
+            title="Cancel",
+            aria_label="Cancel scheduled message",
+            class_name=_ICON_BUTTON,
+        ),
+        class_name="flex items-center gap-2 p-2 rounded-lg border border-gray-100 bg-white",
+    )
+
+
+def later_view() -> rx.Component:
+    return rx.el.div(
+        rx.el.h2(T("Saved & scheduled"), class_name="text-xl font-bold text-gray-900 mb-6"),
+        rx.el.h3(T("Saved messages"), class_name="text-sm font-bold text-gray-700 mb-2"),
+        rx.cond(
+            LaterState.items.length() > 0,
+            rx.el.div(rx.foreach(LaterState.items, saved_row), class_name="flex flex-col gap-2 mb-8", id="relack-saved"),
+            rx.el.p(T("Nothing here yet."), class_name="text-sm text-gray-400 mb-8"),
+        ),
+        rx.el.h3(T("Scheduled messages"), class_name="text-sm font-bold text-gray-700 mb-2"),
+        rx.cond(
+            LaterState.scheduled.length() > 0,
+            rx.el.div(rx.foreach(LaterState.scheduled, scheduled_row), class_name="flex flex-col gap-2", id="relack-scheduled"),
+            rx.el.p(T("Nothing here yet."), class_name="text-sm text-gray-400"),
+        ),
+        class_name="w-full max-w-3xl mx-auto p-6",
+    )
+
+
+def browse_row(room: RoomBrowseItem) -> rx.Component:
+    action = "px-3 py-1.5 text-xs font-medium rounded-lg bg-violet-50 text-violet-600 hover:bg-violet-100 shrink-0"
+    return rx.el.div(
+        rx.el.div(
+            rx.el.span(room.title, class_name="text-sm font-semibold text-gray-900 truncate"),
+            rx.el.span(room.description, class_name="text-xs text-gray-500 truncate"),
+            class_name="flex flex-col min-w-0 flex-1",
+        ),
+        rx.cond(
+            room.archived,
+            rx.fragment(
+                rx.el.span(T("Archived"), class_name="text-xs text-gray-400"),
+                rx.cond(room.can_manage, rx.el.button(T("Restore"), on_click=RoomAdminState.unarchive(room.name), class_name=action)),
+            ),
+            rx.cond(
+                room.joined,
+                rx.el.button(T("Leave"), on_click=RoomAdminState.leave(room.name), aria_label="Leave " + room.title, class_name=action),
+                rx.el.button(T("Join"), on_click=RoomAdminState.rejoin(room.name), aria_label="Join " + room.title, class_name=action),
+            ),
+        ),
+        rx.el.button(
+            T("Open"),
+            on_click=[LocalUIState.show_rooms, RoomState.handle_join_room(room.name)],
+            aria_label="Open " + room.title,
+            class_name="px-3 py-1.5 text-xs font-medium rounded-lg text-gray-600 hover:bg-gray-100 shrink-0",
+        ),
+        class_name="flex items-center gap-3 p-3 rounded-xl border border-gray-100 bg-white",
+    )
+
+
+def browse_view() -> rx.Component:
+    return rx.el.div(
+        rx.el.h2(T("All rooms"), class_name="text-xl font-bold text-gray-900 mb-6"),
+        rx.el.div(rx.foreach(RoomAdminState.browse, browse_row), class_name="flex flex-col gap-2"),
+        class_name="w-full max-w-3xl mx-auto p-6",
+    )
+
+
+def settings_member(member: UserProfile) -> rx.Component:
+    return rx.el.div(
+        rx.el.span(rx.cond(member.nickname != "", member.nickname, member.username), class_name="text-sm truncate flex-1"),
+        rx.cond(
+            RoomAdminState.can_manage,
+            rx.el.button(
+                rx.icon("x", class_name="h-3.5 w-3.5"),
+                on_click=RoomAdminState.remove_member(member.username),
+                aria_label="Remove " + member.username,
+                class_name=_ICON_BUTTON,
+            ),
+        ),
+        class_name="flex items-center gap-2",
+    )
+
+
+def hook_row(hook) -> rx.Component:
+    return rx.el.div(
+        rx.el.span(hook.name, class_name="text-sm font-medium"),
+        rx.el.code("/api/relack/hooks/" + hook.token, class_name="text-[10px] text-gray-500 break-all flex-1"),
+        rx.el.button(
+            rx.icon("x", class_name="h-3.5 w-3.5"),
+            on_click=RoomAdminState.delete_hook(hook.token),
+            aria_label="Delete webhook " + hook.name,
+            class_name=_ICON_BUTTON,
+        ),
+        class_name="flex items-center gap-2",
+    )
+
+
+def room_settings_dialog() -> rx.Component:
+    field = "w-full px-3 py-2 mb-3 border border-gray-200 rounded-lg text-sm"
+    return rx.dialog.root(
+        rx.dialog.content(
+            rx.dialog.title(T("Room settings")),
+            rx.dialog.description(RoomAdminState.title, class_name="sr-only"),
+            rx.el.button(
+                rx.cond(RoomAdminState.muted, T("Unmute this room"), T("Mute this room")),
+                on_click=RoomAdminState.toggle_muted,
+                class_name="mb-3 px-3 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200",
+            ),
+            rx.cond(
+                RoomAdminState.can_manage,
+                rx.el.div(
+                    rx.el.input(default_value=RoomAdminState.title, key=RoomAdminState.room, on_change=RoomAdminState.set_title, aria_label="Room title", class_name=field),
+                    rx.el.input(default_value=RoomAdminState.description, key=RoomAdminState.room, on_change=RoomAdminState.set_description, aria_label="Room description", class_name=field),
+                    rx.cond(
+                        RoomAdminState.is_private,
+                        rx.el.div(
+                            rx.el.h4(T("Members"), class_name="text-sm font-bold mb-1"),
+                            rx.foreach(RoomAdminState.members, settings_member),
+                            rx.el.button(
+                                T("Add people"),
+                                # The picker can't be clicked under a modal dialog: close it meanwhile.
+                                on_click=[
+                                    RoomAdminState.set_open(False),
+                                    Intent.start("relack", "people.pick", on_result=RoomAdminState.add_member),
+                                ],
+                                class_name="mt-1 px-2 py-1 text-xs rounded-lg bg-violet-50 text-violet-600",
+                            ),
+                            class_name="mb-3",
+                        ),
+                    ),
+                    rx.el.h4(T("Webhooks"), class_name="text-sm font-bold mb-1"),
+                    rx.foreach(RoomAdminState.hooks, hook_row),
+                    rx.el.div(
+                        rx.el.input(id="relack-hook-name", on_change=RoomAdminState.set_hook_name, placeholder="CI alerts", aria_label="Webhook name", class_name="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-sm"),
+                        rx.el.button(T("Add"), on_click=RoomAdminState.add_hook, aria_label="Add webhook", class_name="px-3 py-1.5 text-sm rounded-lg bg-violet-50 text-violet-600"),
+                        class_name="flex gap-2 mt-1 mb-4",
+                    ),
+                    rx.el.div(
+                        rx.dialog.close(
+                            rx.el.button(
+                                T("Archive room"),
+                                on_click=GlobalLobbyState.set_archived(RoomAdminState.room, True),
+                                class_name="px-3 py-1.5 text-sm rounded-lg text-red-600 hover:bg-red-50",
+                            )
+                        ),
+                        rx.el.button(T("Save"), on_click=RoomAdminState.save, aria_label="Save room", class_name="ml-auto px-4 py-1.5 text-sm rounded-lg bg-violet-600 text-white"),
+                        class_name="flex items-center",
+                    ),
+                ),
+            ),
+            max_width="460px",
+        ),
+        open=RoomAdminState.is_open,
+        on_open_change=RoomAdminState.set_open,
+    )
+
+
+def forward_dialog() -> rx.Component:
+    return rx.dialog.root(
+        rx.dialog.content(
+            rx.dialog.title(T("Forward to")),
+            rx.dialog.description("", class_name="sr-only"),
+            rx.el.div(
+                rx.foreach(
+                    GlobalLobbyState.visible_room_list,
+                    lambda room: rx.el.button(
+                        GlobalLobbyState.room_titles[room.name],
+                        on_click=ChatUIState.forward_to(room.name),
+                        aria_label="Forward to " + GlobalLobbyState.room_titles[room.name],
+                        class_name="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-gray-100",
+                    ),
+                ),
+                class_name="flex flex-col max-h-80 overflow-y-auto",
+            ),
+            max_width="380px",
+        ),
+        open=ChatUIState.forwarding_id != "",
+        on_open_change=ChatUIState.set_forward_open,
     )
 
 
@@ -1518,11 +1925,22 @@ def chat_area() -> rx.Component:
                             ),
                         ),
                     ),
-                    class_name="flex items-center gap-3 ml-4",
+                    class_name="relack-room-heading flex items-center gap-3 ml-4",
                 ),
-                class_name="flex items-center",
+                class_name="flex items-center min-w-0",
             ),
             rx.el.div(
+                pins_menu(),
+                rx.cond(
+                    ~RoomState.room_is_direct,
+                    rx.el.button(
+                        rx.icon("settings", class_name="h-5 w-5"),
+                        on_click=RoomAdminState.open_settings(RoomState.room_name),
+                        title="Room settings",
+                        aria_label="Room settings",
+                        class_name="p-2 mr-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors",
+                    ),
+                ),
                 call_button(),
                 rx.el.button(
                     rx.icon("users", class_name="h-5 w-5"),
@@ -1542,8 +1960,22 @@ def chat_area() -> rx.Component:
             rx.el.div(
                 message_list(),
                 rx.el.div(
-                    composer("main"),
-                    class_name="px-6 pt-3 pb-2 bg-white border-t border-gray-200",
+                    rx.el.p(
+                        rx.cond(
+                            RoomState.typing_names.length() > 0,
+                            RoomState.typing_names.join(", ") + " ",
+                            "",
+                        ),
+                        rx.cond(RoomState.typing_names.length() > 0, T("is typing…"), ""),
+                        id="relack-typing",
+                        class_name="h-4 text-[11px] text-gray-500 max-w-4xl mx-auto px-2",
+                    ),
+                    rx.cond(
+                        RoomState.room_archived,
+                        rx.el.p(T("This room is archived."), class_name="text-sm text-gray-500 text-center py-3"),
+                        composer("main"),
+                    ),
+                    class_name="px-6 pt-1 pb-2 bg-white border-t border-gray-200",
                 ),
                 custom_attrs={"data-relack-drop": "relack-upload-main"},
                 class_name="flex-1 flex flex-col h-full overflow-hidden bg-[#FAFAFA] min-w-0",
@@ -1560,10 +1992,10 @@ def empty_state() -> rx.Component:
         rx.el.div(
             rx.icon("message-square-dashed", class_name="h-16 w-16 text-gray-300 mb-4"),
             rx.el.h3(
-                "No Room Selected", class_name="text-xl font-bold text-gray-900 mb-2"
+                T("No Room Selected"), class_name="text-xl font-bold text-gray-900 mb-2"
             ),
             rx.el.p(
-                "Choose a room from the sidebar to start chatting.",
+                T("Choose a room from the sidebar to start chatting."),
                 class_name="text-gray-500 max-w-sm",
             ),
             class_name="flex flex-col items-center text-center",
@@ -1588,6 +2020,18 @@ def _hidden_button(element_id: str, on_click) -> rx.Component:
     return rx.el.button(id=element_id, on_click=on_click, tab_index=-1, aria_hidden="true", class_name="sr-only")
 
 
+def pending_view() -> rx.Component:
+    return rx.el.div(
+        rx.icon("hourglass", class_name="h-12 w-12 text-violet-400 mb-4"),
+        rx.el.h3(T("Waiting for approval"), class_name="text-xl font-bold text-gray-900 mb-2"),
+        rx.el.p(
+            T("An administrator needs to approve your account. This page opens by itself when they do."),
+            class_name="text-gray-500 max-w-sm text-center",
+        ),
+        class_name="flex-1 flex flex-col items-center justify-center",
+    )
+
+
 def chat_dashboard() -> rx.Component:
     return rx.el.div(
         rx.el.style(CHAT_CSS),
@@ -1595,15 +2039,25 @@ def chat_dashboard() -> rx.Component:
         rx.el.style(
             '.relack-md a[href="' + AuthState.mention_href + '"] { color: #92400e !important; background: #fef3c7 !important; }'
         ),
-        sidebar(),
-        rx.match(
-            LocalUIState.main_view,
-            ("people", rx.el.div(people_view(), class_name="flex-1 overflow-y-auto")),
-            ("search", rx.el.div(search_view(), class_name="flex-1 overflow-y-auto")),
-            rx.cond(RoomState.in_room, chat_area(), empty_state()),
+        rx.cond(
+            UnreadState.pending,
+            pending_view(),
+            rx.fragment(
+                sidebar(),
+                rx.match(
+                    LocalUIState.main_view,
+                    ("people", rx.el.div(people_view(), class_name="flex-1 overflow-y-auto")),
+                    ("search", rx.el.div(search_view(), class_name="flex-1 overflow-y-auto")),
+                    ("later", rx.el.div(later_view(), class_name="flex-1 overflow-y-auto")),
+                    ("browse", rx.el.div(browse_view(), class_name="flex-1 overflow-y-auto")),
+                    rx.cond(RoomState.in_room, chat_area(), empty_state()),
+                ),
+            ),
         ),
         incoming_calls(),
         delete_dialog(),
+        room_settings_dialog(),
+        forward_dialog(),
         upload_zone("main"),
         upload_zone("thread"),
         rx.el.input(
@@ -1637,6 +2091,12 @@ def chat_dashboard() -> rx.Component:
             RoomState.rejoin_last_room,
             RoomState.heartbeat,
             UnreadState.sync(True),
+            StatusState.load,
+            LaterState.load,
+            rx.call_script(
+                "(navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en'",
+                callback=LangState.set_lang,
+            ),
             rx.call_script(
                 "typeof Notification === 'undefined' ? 'unsupported' : Notification.permission",
                 callback=UnreadState.set_permission,

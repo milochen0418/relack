@@ -1,6 +1,8 @@
 import reflex as rx
 from reflex_ddns_auth.intent import Intent, IntentPage
+from relack import permissions
 from relack.models import UserProfile
+from relack.states.auth_state import AuthState
 from relack.states.shared_state import GlobalLobbyState
 
 
@@ -31,6 +33,11 @@ class PeopleState(rx.State):
     @rx.event
     async def load_members(self):
         self.is_loading = True
+        auth = await self.get_state(AuthState)
+        if auth.user and (permissions.is_pending(auth.user) or not permissions.can(auth.user, "view_profiles")):
+            self.members = []
+            self.is_loading = False
+            return
         lobby = await self.get_state(GlobalLobbyState)
         lobby_linked = await lobby._link_to("global-lobby")
         self.members = sorted(

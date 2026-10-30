@@ -135,6 +135,26 @@ def run():
             expect(other.get_by_role("heading", name=ROOM)).to_have_count(0)
             shots["outsider_sidebar"] = other.screenshot()
 
+            print("Owner adds and removes a member afterwards...")
+            page.get_by_role("button", name="Room settings").click()
+            page.get_by_role("button", name="Add people").click()
+            frame = page.frame_locator("#ddns-intent-frame")
+            frame.get_by_role("button", name="Bob Builder").click(timeout=30000)
+            expect(page.locator("#ddns-intent-frame")).to_have_count(0, timeout=15000)
+            settings = page.get_by_role("dialog").filter(has_text="Room settings")
+            expect(settings.get_by_text("Bob Builder")).to_be_visible(timeout=15000)
+            settings.get_by_role("button", name="Remove alice@example.com").click()
+            expect(settings.get_by_text("Alice Wonder")).to_have_count(0, timeout=15000)
+            page.keyboard.press("Escape")
+
+            print("Group message among three people...")
+            page.get_by_role("button", name="New room").click()
+            dialog.get_by_text("Group message").click()
+            pick(page, "Alice Wonder")
+            pick(page, "Bob Builder")
+            dialog.get_by_role("button", name="Create Room").click()
+            expect(page.get_by_role("heading", name="Alice Wonder, Bob Builder", level=2)).to_be_visible(timeout=15000)
+
             print("All tests passed!")
         except Exception as e:
             print(f"TEST FAILED: {e}")

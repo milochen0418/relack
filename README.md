@@ -55,9 +55,23 @@ poetry run ./run_test_suite.sh chat_notify        # @mentions, unread counts, no
 poetry run ./run_test_suite.sh chat_files_search  # attach, paste, drop, search
 poetry run ./run_test_suite.sh chat_persistence   # restart with Reflex's state files deleted
 poetry run ./run_test_suite.sh chat_guards        # guest names, dm- names, look-alike rooms
+poetry run ./run_test_suite.sh chat_rules         # permissions, approval, audit log
+poetry run ./run_test_suite.sh chat_rooms         # rename, leave, mute, archive, webhooks, commands
+poetry run ./run_test_suite.sh chat_later         # pin, save, remind, forward, links, scheduling
+poetry run ./run_test_suite.sh chat_presence      # status, typing, language, dark mode, phones
 ```
 
 `chat_messages` replaces all data through the admin import (like `private_room` and `people_intent`), so run the suites against a test server.
+
+## Rooms, people and admin
+
+- **Rooms**: the gear in a room's header renames it, edits its description, adds or removes members of a private room, mutes it for you, manages webhooks and archives it (read-only, restored from **Browse rooms**). **Browse rooms** also leaves and rejoins public rooms. **New room → Group message** starts a direct message with several people.
+- **Message menu (⋯)**: pin to the room, save for later, remind me, forward, copy a link to the message. **Saved & scheduled** lists saved and scheduled messages; the clock beside Send schedules a message.
+- **Status**: a status with an emoji shows beside your messages; pausing notifications holds them back (reminders still come). "Who is typing" shows above the box.
+- **Commands**: `/help`, `/shrug`, `/me`, `/later 2h text`, `/mute`, `/unmute`, `/leave`, `/status 🌴 text`, `/dnd 1h`, `/topic text`, `/rename name`, `/archive`.
+- **Webhooks**: `POST /api/relack/hooks/<token>` with `{"text": "..."}` (optionally `"username"`) posts in the room; each room's settings create and delete them. Anyone holding the address can post, so treat it as a password.
+- **Admin**: everything is open until the admin tightens it under **Settings → Permissions** (approval, creating rooms, mentions, profiles; guests and Google accounts apart). A Google account can be made an admin in **Users**: no passcode needed, can delete anyone's messages and rooms, and only admins can use **Clear DB**. **Audit log** records logins, room, member and admin actions; **Message retention** deletes messages and their files after a number of days.
+- **Interface**: the top bar switches English / 中文 and dark mode for that browser. Phones get a one-column layout; the site can be added to the home screen. Push notifications to a closed phone app are not included.
 
 ## Calls
 
