@@ -30,7 +30,7 @@ ZH = {
     "Pause notifications": "暫停通知", "1 hour": "1 小時", "Until tomorrow": "到明天", "Resume": "恢復",
     "Clear": "清除", "is typing…": "正在輸入…", "Waiting for approval": "等待審核",
     "An administrator needs to approve your account. This page opens by itself when they do.": "管理員核准後，這個頁面會自動打開。",
-    "Logout": "登出", "Copy Link": "複製連結",
+    "Logout": "登出", "Copy Link": "複製連結", "Signed in as guest": "已訪客登入", "Signed in with Google": "Google 登入",
 }
 
 

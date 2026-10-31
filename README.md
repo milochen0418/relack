@@ -6,14 +6,70 @@
 
 <p align="center">
   <b>Your team's chat, on your own terms.</b><br>
-  An open-source team chat you run on your own server, written entirely in Python with <a href="https://reflex.dev/">Reflex</a>.
+  Team chat that runs on your own machine. No per-seat fees, no one else's rules, and every message stays with you.
 </p>
 
 <p align="center">
-  <img src="docs/images/relack-tour.gif" width="720" alt="A short tour of Relack: rich messages, mentions, threads, files, search, calls, webhooks and a phone">
+  <a href="https://youtu.be/J60fVC0Y5Ys"><b>▶ Watch the film</b></a> ·
+  <a href="#install-it-from-the-agentic-app-store"><b>Install it</b></a> ·
+  <a href="#why-relack">Why Relack</a> ·
+  <a href="#what-you-get">What you get</a> ·
+  <a href="#a-tour">Tour</a> ·
+  <a href="#run-it-from-source">Run from source</a>
 </p>
 
-Every decision your team makes ends up in a chat: your plans, your customers, your code. Relack gives you the team chat you expect on a server you control. Rooms, threads, calls, search and an admin console all run on your own machine, and the history sits in one SQLite file beside one folder of uploads.
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-7c3aed" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/python-3.11%20to%203.15-4f46e5" alt="Python 3.11 to 3.15">
+  <img src="https://img.shields.io/badge/built%20with-Reflex%200.10-4f46e5" alt="Built with Reflex 0.10">
+  <a href="https://milochen0418.github.io/re_ddns/"><img src="https://img.shields.io/badge/get%20it%20from-Agentic%20App%20Store-16a34a" alt="Get it from the Agentic App Store"></a>
+</p>
+
+<p align="center">
+  <img src="docs/images/relack-tour.gif" width="720" alt="A short tour of Relack: four screens in one conversation, mentions, threads, files, search, calls, a game link in the chat, and the install">
+</p>
+
+Every decision your team makes ends up in a chat: your plans, your customers, your code. Relack gives you the team chat you expect on a machine you control. Rooms, threads, calls, search and an admin console run on your own computer or server, and the history sits in one SQLite file beside one folder of uploads.
+
+## Why Relack
+
+Hosted chat is rented. The rent, the rules and the locks belong to someone else, and the last two years showed what that means. The [three-minute film](https://youtu.be/J60fVC0Y5Ys) tells the story.
+
+<p align="center">
+  <a href="https://youtu.be/J60fVC0Y5Ys"><img src="docs/images/relack-film.jpg" width="640" alt="Watch the film on YouTube: what happened on Slack, and why Relack exists"></a>
+</p>
+
+| What happened on Slack | How it works on Relack |
+|---|---|
+| **The bill.** In September 2025 Hack Club, a nonprofit paying $5,000 a year, was told to pay $50,000 that week and $200,000 a year or lose its workspace and message history ([The Register](https://www.theregister.com/2025/09/19/slack_nonprofit_license_hike_threat/)). Slack's CEO [called it a mistake](https://news.ycombinator.com/item?id=45283887), apologized and restored the price. In June 2025 Business+ went from $12.50 to $15 per person per month ([TechSpot](https://www.techspot.com/news/108366-salesforce-latest-price-increase-comes-promise-more-ai.html)). Fifty people at the [list price](https://slack.com/pricing) cost $9,000 a year. | There are no seats and no plans. Relack is MIT licensed: you run your own machine, and that's the whole bill. |
+| **The off switch.** On April 1, 2026, Slack deactivated workspaces billed in mainland China, Hong Kong and Macau, with deletion to follow within 90 days ([Gizchina](https://www.gizchina.com/tech/slack-terminates-services-across-greater-china-triggering-user-backlash)). | It runs on your machine, so no one far away can switch it off. |
+| **The data.** Since May 2025 outside apps may no longer index, copy or keep Slack messages long term, even if the customer permits it ([The Information, via Slashdot](https://tech.slashdot.org/story/25/06/13/1443216/); [Slack API Terms](https://slack.com/terms-of-service/api)). The Free and Pro plans [export public channels only](https://slack.com/help/articles/201658943-Export-your-workspace-data). | Your history is a SQLite file and a folder you hold. **Admin → Export Data** saves every room, private rooms and direct messages included; the files stay in that folder. |
+| **Your messages.** Slack's systems analyze customer messages for its global models unless a workspace owner [emails to opt out](https://slack.com/trust/data-management/privacy-principles). Slack says generative AI is trained on customer data only with opt-in. | There are no global models, and Relack sends your messages to no AI. How long messages are kept is a number you set. |
+
+Slack is good software, and none of this is about how well it works. It's about who decides. Many organizations also don't want internal conversations and trade secrets on third-party servers, often in other jurisdictions, where they can be exposed to data breaches, foreign access or surveillance. Run inside your own infrastructure, Relack keeps that information with you, without giving up a modern chat.
+
+## Install it from the Agentic App Store
+
+The quickest way to run Relack is the [Agentic App Store](https://milochen0418.github.io/re_ddns/): an open-source store that runs on your own computer, installs apps from GitHub with one click and gives each one its own HTTPS address.
+
+1. Get the store. It needs Docker on a Mac or Linux host; [one script](https://github.com/milochen0418/re_ddns#quick-start-run-from-zero) sets up everything:
+   ```bash
+   git clone https://github.com/milochen0418/re_ddns.git
+   cd re_ddns
+   ./rerun_from_zero.sh
+   ```
+2. Open `https://aapps.reflex-ddns.com`, find **Relack** and press **Install**.
+3. Choose an admin passcode. Google sign-in is optional: leave its fields empty and everyone joins with a nickname.
+4. Watch the progress bar, then press **Open**. Your team chat is at `https://relack.reflex-ddns.com`, and the other computers on your network [join with one script](https://github.com/milochen0418/re_ddns).
+
+<table>
+  <tr>
+    <td><img src="docs/images/store-dialog.png" alt="The Set up Relack dialog in the Agentic App Store: an admin passcode and two optional Google fields"></td>
+    <td><img src="docs/images/store-install.png" alt="Relack installing from the store, with a progress bar and the live log"></td>
+  </tr>
+</table>
+
+To run it without the store, see [Run it from source](#run-it-from-source).
 
 ## What you get
 
@@ -27,21 +83,17 @@ Every decision your team makes ends up in a chat: your plans, your customers, yo
 | **Later** | Pins, saved messages, reminders and scheduled messages |
 | **Calls** | Ring a room or a person; the call keeps running while you work |
 | **Automation** | Incoming webhooks and slash commands |
-| **Admin** | Approval, permissions, audit log, message retention, export and import |
+| **Admin** | Approval, permissions, audit log, message retention, export of every room, and import |
 | **Anywhere** | English and 中文, dark mode, phones and the home screen |
-| **Sign-in** | Guest nicknames and Google accounts |
-
-## Motivation
-
-As SaaS services like Slack continue to expand globally, they have become the standard for enterprise communication. However, this convenience comes with a cost: data sovereignty and confidentiality.
-
-Many enterprises are increasingly concerned that storing sensitive internal communications and trade secrets on third-party servers—often located in different jurisdictions—exposes them to risks. These risks include potential access by foreign governments, data breaches, or unauthorized surveillance.
-
-**Relack** was created to solve this problem. By providing a solution that can be fully self-hosted and controlled within your own infrastructure, Relack ensures that your organization's critical information remains private and secure, without sacrificing the modern chat experience.
+| **Sign-in** | Guest nicknames, and Google accounts if you set them up |
 
 ## A tour
 
 Every screen below comes from a running Relack. The people and messages are made up.
+
+Messages land on every screen at once: here three people on four screens, one of them a phone, with a build bot joining in.
+
+![Four screens showing the same conversation at the same moment](docs/images/four-screens.png)
 
 ![Relack with the room list on the left and the conversation beside it](docs/images/chat-dashboard.png)
 
@@ -135,7 +187,33 @@ Guests join with a nickname in seconds, and Google accounts keep a permanent pro
   </tr>
 </table>
 
-## Getting Started
+### Better with the rest of the store
+
+Relack lives beside the other apps in the [Agentic App Store](https://milochen0418.github.io/re_ddns/), and they work together:
+
+- **Calls** come from the call app you install next to it. If you have several, whoever starts the call picks one.
+- **Links become cards.** Paste a link from another app and the chat shows what's behind it. A [Snake Duel](https://github.com/milochen0418/snake_duel) room shows the board and who's in; one click and you're playing.
+- **One sign-in.** Someone signed in to Relack is already signed in to the other apps on the same store.
+
+<table>
+  <tr>
+    <td><img src="docs/images/link-card.png" alt="A Snake Duel room pasted into a chat, shown as a card with the game board"></td>
+    <td><img src="docs/images/game-room.png" alt="The Snake Duel room, with the person from the chat already signed in"></td>
+  </tr>
+</table>
+
+## What Relack doesn't do yet
+
+Better you hear it here than find out after moving your team:
+
+- No importer for a Slack export, so your old history stays where it is.
+- No push notifications to a closed phone app. Desktop notifications work while a tab is open, and the site can be added to a phone's home screen.
+- Sign-in is guest nicknames and Google accounts: no SAML or LDAP. Guests have no password, so turn on approval under **Settings → Permissions** if people you don't know can reach the site.
+- Incoming webhooks and built-in slash commands only: no bots that answer back, and no app marketplace of its own.
+- No shared channels between organizations.
+- One machine and one SQLite file, with no clustering. Messages are stored unencrypted on that machine and files are protected by unguessable addresses, so keep the machine safe and back it up.
+
+## Run it from source
 
 This project is managed with [Poetry](https://python-poetry.org/).
 
@@ -168,7 +246,7 @@ cp .env.template .env
 
 Set these in `.env`:
 
-- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (optional: without them the sign-in page offers guest nicknames only)
    1) In Google Cloud Console, create OAuth 2.0 credentials → Web application.
    2) Authorized JavaScript origins: add `http://localhost:3000` (plus your deploy domain later).
    3) Authorized redirect URIs: add `http://localhost:3000/auth/google/callback` (plus your deploy domain later).
@@ -191,7 +269,8 @@ For quick restarts during development (kills anything on ports 3000/8000, then r
 poetry run ./reflex_rerun.sh
 ```
 
-### Python version help (common first-run issue)
+<details>
+<summary>Python version help (common first-run issue)</summary>
 
 If you see an error like `Current Python version (3.x) is not allowed by the project (>=3.11,<3.16)`, point Poetry at a 3.15 interpreter and retry:
 
@@ -216,6 +295,8 @@ After switching, rerun the server:
 poetry run reflex run
 ```
 
+</details>
+
 ## Messages
 
 - **History**: rooms, messages, people, settings and logins are kept in a SQLite database, `relack.db`, so they survive restarts. A room opens with its latest 100 messages; **Load earlier messages** goes further back. Times show in each viewer's own time zone, with a divider where the day changes.
@@ -228,6 +309,9 @@ poetry run reflex run
 A guest's nickname is their identity, so it can't contain `@` (Google accounts are their email address), be "System" (owner of the default rooms) or be a member's username. Room names starting with `dm-` are kept for direct messages. Import, export and approvals need the admin passcode.
 
 Where `relack.db` lives: in the App Store, beside the app's `reflex.db` on its own volume (SQLite files must not be shared with the host); run locally, in `.relack/` (which the dev server's hot reload ignores). `RELACK_DB_PATH` sets another place. **Admin → Data Maintenance → Export Data** saves everything except the files themselves.
+
+<details>
+<summary>E2E suites</summary>
 
 E2E suites:
 
@@ -245,6 +329,8 @@ poetry run ./run_test_suite.sh chat_layout        # every panel opens and closes
 ```
 
 `chat_messages` replaces all data through the admin import (like `private_room` and `people_intent`), so run the suites against a test server.
+
+</details>
 
 ## Rooms, people and admin
 
@@ -266,6 +352,9 @@ Every room (public, private, or direct message) has a call button in its header.
 - **Picture-in-picture**: drag the tray's bar along the bottom to move it. Drag it up and it becomes a small window of the call, showing the call as it looks in full, view only: its buttons don't respond. Click the window to bring the call back, drag its corner to resize it, or push it down to the bottom to turn it back into the bar. The window stays where you left it, also after a reload.
 - **Leaving**: hanging up, the call's **×** (in the dialog or the tray), or starting another call takes you out of the call. The call ends when its last person leaves.
 - **Privacy**: each call gets a random id, so the call of a private room can't be guessed from its name. The id is passed to the call app privately (by postMessage), so it never appears in the dialog's URL.
+
+<details>
+<summary>Settings and E2E suites</summary>
 
 Settings (all optional):
 
@@ -294,6 +383,8 @@ DDNS_INTENT_PROVIDER_CALL_JOIN=livekit DDNS_INTENT_URL_LIVEKIT=http://localhost:
 poetry run ./run_test_suite.sh call_pip
 ```
 
+</details>
+
 ## Architecture & Design
 
 Interested in how Relack is built? Check out our [Project Design and Architecture Overview](docs/Relack%20Project%20Design%20and%20Architecture%20Overview.pdf).
@@ -301,3 +392,5 @@ Interested in how Relack is built? Check out our [Project Design and Architectur
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+Slack is a trademark of Salesforce, Inc. Relack is an independent project, not affiliated with or endorsed by Slack or Salesforce.

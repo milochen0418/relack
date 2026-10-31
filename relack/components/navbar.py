@@ -119,7 +119,7 @@ def navbar() -> rx.Component:
                                             rx.el.div(
                                                 rx.icon("ghost", class_name="h-3 w-3 mr-1"),
                                                 rx.el.span(
-                                                    "已訪客登入",
+                                                    T("Signed in as guest"),
                                                     class_name="text-[10px] font-medium whitespace-nowrap",
                                                 ),
                                                 class_name="flex items-center text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-md mt-0.5",
@@ -127,7 +127,7 @@ def navbar() -> rx.Component:
                                             rx.el.div(
                                                 rx.icon("circle-check", class_name="h-3 w-3 mr-1"),
                                                 rx.el.span(
-                                                    "Google 登入",
+                                                    T("Signed in with Google"),
                                                     class_name="text-[10px] font-medium whitespace-nowrap",
                                                 ),
                                                 class_name="flex items-center text-green-600 bg-green-50 px-1.5 py-0.5 rounded-md mt-0.5",

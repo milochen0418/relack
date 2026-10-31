@@ -1,3 +1,5 @@
+import os
+
 import reflex as rx
 from relack.states.auth_state import AuthState
 
@@ -63,12 +65,20 @@ def google_signin_view() -> rx.Component:
 
 
 def auth_container() -> rx.Component:
+    # Google sign-in is optional: without its credentials guests are the way in.
+    google = (
+        [
+            rx.el.div(
+                rx.el.span("OR", class_name="bg-white px-2 text-gray-500 text-sm"),
+                class_name="relative flex justify-center text-sm my-6 before:content-[''] before:absolute before:top-1/2 before:left-0 before:right-0 before:h-px before:bg-gray-200 before:-z-10",
+            ),
+            google_signin_view(),
+        ]
+        if os.environ.get("GOOGLE_CLIENT_ID")
+        else []
+    )
     return rx.el.div(
         guest_view(),
-        rx.el.div(
-            rx.el.span("OR", class_name="bg-white px-2 text-gray-500 text-sm"),
-            class_name="relative flex justify-center text-sm my-6 before:content-[''] before:absolute before:top-1/2 before:left-0 before:right-0 before:h-px before:bg-gray-200 before:-z-10",
-        ),
-        google_signin_view(),
+        *google,
         class_name="bg-white rounded-2xl shadow-xl border border-gray-100 p-8 w-full max-w-md mx-auto",
     )
