@@ -16,7 +16,8 @@ SPECIAL_MENTIONS = ("here", "channel", "everyone")
 # Stored in a message's mention list for @here / @channel / @everyone.
 EVERYONE = "@here"
 
-_TOKEN_RE = re.compile(r"<@([^<>\s]+)>|<!(here|channel|everyone)>")
+# Guest usernames are nicknames, so they can hold spaces.
+_TOKEN_RE = re.compile(r"<@([^<>\n]+)>|<!(here|channel|everyone)>")
 _CODE_RE = re.compile(r"```.*?(?:```|$)|`[^`\n]*`", re.S)
 _ASCII_WORD = re.compile(r"[A-Za-z0-9_]")
 

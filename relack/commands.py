@@ -32,6 +32,9 @@ async def set_status(state: rx.State, user: UserProfile, **changes):
     lobby = await state.get_state(GlobalLobbyState)
     target = lobby if lobby._linked_to else await lobby._link_to("global-lobby")
     target._known_profiles = {**target._known_profiles, profile.username: profile}
+    from relack.states.chat_state import StatusState  # noqa: WPS433
+
+    await (await state.get_state(StatusState)).load()
 
 
 async def run_command(state, user: UserProfile, text: str):

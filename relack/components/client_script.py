@@ -321,11 +321,16 @@ CLIENT_JS = r"""
     });
     el.addEventListener('load', () => { if (atBottom) el.scrollTop = el.scrollHeight; }, true);
     el.scrollTop = el.scrollHeight;
+    el.__relackLeaveBottom = () => { atBottom = false; };
   }
   window.relackScrollTo = function (id, tries) {
     tries = tries || 0;
     const el = document.getElementById(id);
     if (el) {
+      // A list that has only just appeared opens at the newest message: that must not come after this.
+      const list = el.closest('#relack-messages, #relack-thread-messages');
+      setupScroller(list);
+      if (list) list.__relackLeaveBottom();
       el.scrollIntoView({ block: 'center' });
       return;
     }

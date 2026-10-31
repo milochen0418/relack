@@ -120,7 +120,7 @@ def run():
             shots["files"] = page.screenshot()
 
             print("Search messages, files and people...")
-            for i in range(3):
+            for i in range(14):  # enough to push the report out of view
                 box.click()
                 page.keyboard.type(f"filler {i}")
                 page.keyboard.press("Enter")
@@ -148,6 +148,9 @@ def run():
             highlighted = page.locator("#relack-messages .relack-highlight")
             expect(highlighted).to_have_count(1, timeout=10000)
             expect(highlighted).to_contain_text("Here is the report " + STAMP)
+            expect(highlighted).to_be_in_viewport(timeout=5000)
+            page.wait_for_timeout(1500)
+            expect(highlighted).to_be_in_viewport()
 
             print("Typing filters the room list...")
             search.fill("")

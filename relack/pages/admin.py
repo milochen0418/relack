@@ -72,7 +72,15 @@ def users_table():
                                 rx.cond(
                                     user.is_approved,
                                     rx.badge("Approved", color_scheme="green"),
-                                    rx.badge("Pending", color_scheme="yellow"),
+                                    rx.cond(
+                                        rx.cond(
+                                            user.is_guest,
+                                            PermissionState.guest_requires_approval,
+                                            PermissionState.google_requires_approval,
+                                        ),
+                                        rx.badge("Pending", color_scheme="yellow"),
+                                        rx.badge("Not required", color_scheme="gray"),
+                                    ),
                                 ),
                             ),
                             rx.table.cell(user.created_at),
@@ -438,7 +446,7 @@ def permissions_card():
         rx.el.div(
             rx.el.h3("Permissions", class_name="text-lg font-semibold text-gray-900"),
             rx.el.p(
-                "Define guest defaults and guardrails. (UI only for now)",
+                "Who can join and what they can do. Admins can do everything.",
                 class_name="text-sm text-gray-500",
             ),
             class_name="space-y-1",
@@ -448,7 +456,7 @@ def permissions_card():
                 rx.el.div(
                     rx.el.span("Roles", class_name="text-sm font-semibold text-gray-800"),
                     rx.el.p(
-                        "Currently editing guest defaults. Extend for more roles later.",
+                        "Guests and Google accounts have separate switches below.",
                         class_name="text-xs text-gray-500",
                     ),
                     class_name="space-y-1",

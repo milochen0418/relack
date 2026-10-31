@@ -28,7 +28,7 @@ BASE_URL = os.environ.get("BASE_URL", "http://localhost:3000").rstrip("/")
 HEADLESS = os.environ.get("HEADLESS", "1") != "0"
 STAMP = str(int(time.time()))[-5:]
 ALICE = "Alice" + STAMP
-BOB = "Bob" + STAMP
+BOB = "Bob Park" + STAMP  # usernames can hold spaces
 # Where the person being notified is looking meanwhile.
 ELSEWHERE = "Elsewhere " + STAMP
 
@@ -109,7 +109,7 @@ def run():
             assert box.input_value() == f"Hi @{BOB} ", box.input_value()
             alice.keyboard.type("please look " + STAMP)
             alice.keyboard.press("Enter")
-            link = alice.locator('.relack-md a[href="#mention-' + BOB + '"]')
+            link = alice.locator('.relack-md a[href="#mention-' + BOB.replace(" ", "%20") + '"]')
             expect(link).to_have_text("@" + BOB, timeout=10000)
 
             print("Bob: mention badge, title count, notification...")
@@ -162,7 +162,7 @@ def run():
             print("Clicking a mention opens the profile dialog...")
             in_background(bob, False)
             open_room(bob, "General")
-            bob.locator(f'.relack-md a[href="#mention-{BOB}"]').last.click()
+            bob.locator('.relack-md a[href="#mention-' + BOB.replace(" ", "%20") + '"]').last.click()
             frame = bob.frame_locator("#ddns-intent-frame")
             expect(frame.get_by_text(BOB).first).to_be_visible(timeout=30000)
             shots["mention_profile"] = bob.screenshot()

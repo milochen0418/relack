@@ -67,7 +67,7 @@ def run():
             box.click()
             bob.keyboard.type("/status 🌴 On holiday")
             bob.keyboard.press("Enter")
-            bob.wait_for_timeout(800)
+            expect(bob.get_by_role("button", name="Set a status")).to_contain_text("On holiday", timeout=10000)
             box.click()
             bob.keyboard.type("after status " + STAMP)
             bob.keyboard.press("Enter")

@@ -1,6 +1,35 @@
-# Relack
+<p align="center">
+  <img src="assets/relack-icon.svg" width="96" alt="Relack icon">
+</p>
 
-**Relack** is a secure, self-hosted team communication platform built with [Reflex](https://reflex.dev/) and Python. It is designed to be a privacy-focused alternative to SaaS solutions like Slack.
+<h1 align="center">Relack</h1>
+
+<p align="center">
+  <b>Your team's chat, on your own terms.</b><br>
+  An open-source team chat you run on your own server, written entirely in Python with <a href="https://reflex.dev/">Reflex</a>.
+</p>
+
+<p align="center">
+  <img src="docs/images/relack-tour.gif" width="720" alt="A short tour of Relack: rich messages, mentions, threads, files, search, calls, webhooks and a phone">
+</p>
+
+Every decision your team makes ends up in a chat: your plans, your customers, your code. Relack gives you the team chat you expect on a server you control. Rooms, threads, calls, search and an admin console all run on your own machine, and the history sits in one SQLite file beside one folder of uploads.
+
+## What you get
+
+| | |
+|---|---|
+| **Rooms** | Public rooms, private rooms, direct messages and group messages |
+| **Messages** | Markdown, code blocks, link previews, reactions, threads, editing and deleting |
+| **Mentions** | `@name`, `@here`, `@channel`, unread counts, desktop notifications and a sound |
+| **Files** | Attach, paste or drop, up to 200 MB per file; pictures show in the message |
+| **Search** | Messages, files and people, across every room you can see |
+| **Later** | Pins, saved messages, reminders and scheduled messages |
+| **Calls** | Ring a room or a person; the call keeps running while you work |
+| **Automation** | Incoming webhooks and slash commands |
+| **Admin** | Approval, permissions, audit log, message retention, export and import |
+| **Anywhere** | English and 中文, dark mode, phones and the home screen |
+| **Sign-in** | Guest nicknames and Google accounts |
 
 ## Motivation
 
@@ -10,29 +39,182 @@ Many enterprises are increasingly concerned that storing sensitive internal comm
 
 **Relack** was created to solve this problem. By providing a solution that can be fully self-hosted and controlled within your own infrastructure, Relack ensures that your organization's critical information remains private and secure, without sacrificing the modern chat experience.
 
-## Architecture & Design
+## A tour
 
-Interested in how Relack is built? Check out our [Project Design and Architecture Overview](docs/Relack%20Project%20Design%20and%20Architecture%20Overview.pdf).
+Every screen below comes from a running Relack. The people and messages are made up.
 
-## Features
+![Relack with the room list on the left and the conversation beside it](docs/images/chat-dashboard.png)
 
-- **Full Data Control**: You own your data. No third-party SaaS lock-in.
-- **Pure Python**: Built entirely in Python using the Reflex framework, making it easy to customize and extend.
-- **Modern UI**: Clean and responsive interface for seamless team collaboration.
-- **Calls**: Start an audio call in any room or direct message; see [Calls](#calls).
-- **Messages that stay**: every room keeps its whole history, with threads, reactions, editing and deleting, Markdown formatting, files and pictures, search, @mentions and notifications; see [Messages](#messages).
+### Rooms and rich messages
 
-## Screenshots
+Public rooms, private rooms and direct messages sit in one list. Write in Markdown or use the toolbar under the box: bold text, lists and code blocks just look right. Input methods work too: Enter never sends while a Chinese word is still being composed.
 
-### Authentication
-Relack supports anonymous guest access for quick and easy collaboration.
+![A room with a formatted checklist, a code block and a Chinese message](docs/images/messages.png)
 
-![Guest Login](docs/images/guest-login.png)
+### Mentions and notifications
 
-### Main Interface
-A full-featured chat interface with room management and real-time messaging.
+Type `@` and pick a name. They get a badge on the room, a sound and a desktop notification. `@here`, `@channel` and `@everyone` reach the whole room.
 
-![Chat Dashboard](docs/images/chat-dashboard.png)
+![The list of names open above the message box](docs/images/mentions.png)
+
+### Reactions and threads
+
+A reaction says "got it" in one tap. Replies go into a side panel, so the main room stays calm.
+
+![A message with reactions and its thread open beside the room](docs/images/thread.png)
+
+### Files and pictures
+
+Attach a file, paste a screenshot or drop it on the room. Pictures show in the message and open in a viewer; other files become a card that downloads them.
+
+![A pasted picture and a PDF in the conversation](docs/images/files.png)
+
+### History and search
+
+Nothing gets lost. Rooms keep their whole history, and search finds messages, files and people in every room you can see. A click takes you straight to the message.
+
+![Search results for the word pricing](docs/images/search.png)
+
+### Pins, reminders and scheduled messages
+
+The `⋯` menu on a message pins it to the room, saves it for later, sets a reminder, forwards it or copies a link to it. The clock beside Send schedules a message, and **Saved & scheduled** lists everything waiting.
+
+![The Saved and scheduled page](docs/images/saved-and-scheduled.png)
+
+### Calls
+
+Start a call from any room or direct message and everyone gets rung. The call runs in a separate call app, such as the self-hosted [LiveKit audio chat](https://github.com/milochen0418/reflex_ddns_livekit_audio_chat), and keeps running in a small tray while you go back to work. See [Calls](#calls) for the details.
+
+![A call between two people, in a dialog over the room](docs/images/call.png)
+
+### Webhooks and slash commands
+
+Your tools can post into a room. Create a webhook in the room's settings, then send it JSON:
+
+```bash
+curl -X POST https://your-server/api/relack/hooks/<token> \
+  -H "Content-Type: application/json" \
+  -d '{"text": "✅ Build #482 passed on `main`, ready to deploy"}'
+```
+
+Commands such as `/status 🌴 On holiday`, `/later 2h text` and `/dnd 1h` keep your hands on the keyboard; `/help` lists them all.
+
+![The Room settings dialog with a webhook, its address blurred here](docs/images/room-settings.png)
+
+### Admin controls
+
+Everything is open until you tighten it. Decide who gets in and who can create rooms, see who did what in the audit log, and set how long messages are kept.
+
+<table>
+  <tr>
+    <td><img src="docs/images/admin-permissions.png" alt="Permissions settings"></td>
+    <td><img src="docs/images/admin-audit-log.png" alt="The audit log"></td>
+  </tr>
+</table>
+
+### Your way, on any screen
+
+English and 中文, light and dark, desktop and phone. The site can also be added to a phone's home screen.
+
+<table>
+  <tr>
+    <td width="42%"><img src="docs/images/dark-mode.png" alt="Relack in dark mode"></td>
+    <td width="42%"><img src="docs/images/chinese.png" alt="Relack in Chinese"></td>
+    <td width="16%"><img src="docs/images/phone.png" alt="Relack on a phone"></td>
+  </tr>
+</table>
+
+### Sign in your way
+
+Guests join with a nickname in seconds, and Google accounts keep a permanent profile.
+
+<table>
+  <tr>
+    <td><img src="docs/images/guest-login.png" alt="Signing in as a guest"></td>
+    <td><img src="docs/images/google-login.png" alt="Signing in with Google"></td>
+  </tr>
+</table>
+
+## Getting Started
+
+This project is managed with [Poetry](https://python-poetry.org/).
+
+### Prerequisites
+
+- Python 3.15 (`pyproject.toml` allows 3.11 – 3.15)
+- Poetry
+
+### Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/milochen0418/relack.git
+   cd relack
+   ```
+
+2. Install dependencies:
+   ```bash
+   poetry env use python3.15
+   poetry install
+   ```
+
+### Environment variables (.env)
+
+Copy the template and fill in the values before running the app:
+
+```bash
+cp .env.template .env
+```
+
+Set these in `.env`:
+
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`
+   1) In Google Cloud Console, create OAuth 2.0 credentials → Web application.
+   2) Authorized JavaScript origins: add `http://localhost:3000` (plus your deploy domain later).
+   3) Authorized redirect URIs: add `http://localhost:3000/auth/google/callback` (plus your deploy domain later).
+   4) Paste the client ID/secret into `.env`. Wrong or missing values will raise "Invalid audience" during Google login. Reference: https://github.com/masenf/reflex-google-auth
+- `ADMIN_PASSCODE`: Any secret string you define. It unlocks the in-app admin dashboard (via the "Administrator Settings" link). Keep it private and change it for your environment.
+
+### Running the App
+
+Start the development server (via Poetry env):
+
+```bash
+poetry run reflex run
+```
+
+The application will be available at `http://localhost:3000`.
+
+For quick restarts during development (kills anything on ports 3000/8000, then restarts Reflex):
+
+```bash
+poetry run ./reflex_rerun.sh
+```
+
+### Python version help (common first-run issue)
+
+If you see an error like `Current Python version (3.x) is not allowed by the project (>=3.11,<3.16)`, point Poetry at a 3.15 interpreter and retry:
+
+macOS (Homebrew Python 3.15):
+
+```bash
+brew install python@3.15
+poetry env use /opt/homebrew/bin/python3.15
+poetry install
+```
+
+If you already have `python3.15` on your PATH (e.g., from an existing install), you can simply run:
+
+```bash
+poetry env use python3.15
+poetry install
+```
+
+After switching, rerun the server:
+
+```bash
+poetry run reflex run
+```
 
 ## Messages
 
@@ -112,83 +294,10 @@ DDNS_INTENT_PROVIDER_CALL_JOIN=livekit DDNS_INTENT_URL_LIVEKIT=http://localhost:
 poetry run ./run_test_suite.sh call_pip
 ```
 
-## Getting Started
+## Architecture & Design
 
-This project is managed with [Poetry](https://python-poetry.org/).
+Interested in how Relack is built? Check out our [Project Design and Architecture Overview](docs/Relack%20Project%20Design%20and%20Architecture%20Overview.pdf).
 
-### Prerequisites
+## License
 
-- Python 3.15 (`pyproject.toml` allows 3.11 – 3.15)
-- Poetry
-
-### Installation
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/your-username/relack.git
-   cd relack
-   ```
-
-2. Install dependencies:
-   ```bash
-   poetry env use python3.15
-   poetry install
-   ```
-
-### Environment variables (.env)
-
-Copy the template and fill in the values before running the app:
-
-```bash
-cp .env.template .env
-```
-
-Set these in `.env`:
-
-- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`
-   1) In Google Cloud Console, create OAuth 2.0 credentials → Web application.
-   2) Authorized JavaScript origins: add `http://localhost:3000` (plus your deploy domain later).
-   3) Authorized redirect URIs: add `http://localhost:3000/auth/google/callback` (plus your deploy domain later).
-   4) Paste the client ID/secret into `.env`. Wrong or missing values will raise "Invalid audience" during Google login. Reference: https://github.com/masenf/reflex-google-auth
-- `ADMIN_PASSCODE`: Any secret string you define. It unlocks the in-app admin dashboard (via the "Administrator Settings" link). Keep it private and change it for your environment.
-
-### Running the App
-
-Start the development server (via Poetry env):
-
-```bash
-poetry run reflex run
-```
-
-The application will be available at `http://localhost:3000`.
-
-For quick restarts during development (kills anything on ports 3000/8000, then restarts Reflex):
-
-```bash
-poetry run ./reflex_rerun.sh
-```
-
-### Python version help (common first-run issue)
-
-If you see an error like `Current Python version (3.x) is not allowed by the project (>=3.11,<3.16)`, point Poetry at a 3.15 interpreter and retry:
-
-macOS (Homebrew Python 3.15):
-
-```bash
-brew install python@3.15
-poetry env use /opt/homebrew/bin/python3.15
-poetry install
-```
-
-If you already have `python3.15` on your PATH (e.g., from an existing install), you can simply run:
-
-```bash
-poetry env use python3.15
-poetry install
-```
-
-After switching, rerun the server:
-
-```bash
-poetry run reflex run
-```
+MIT. See [LICENSE](LICENSE).
