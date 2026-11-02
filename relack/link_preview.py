@@ -41,6 +41,15 @@ _DICOM_VIEWER_HOSTS = {
 }
 _DICOM_SERIES_RE = re.compile(r"^/viewer/([0-9a-f]{10})/?$")
 
+# Codoc in VecDraw serves the SPA shell at /doc/<id>; per-drawing Open Graph tags
+# (and a picture of the drawing) live on the backend at /_vecdraw/og/<id>.
+_VECDRAW_HOSTS = {
+    h.strip().lower()
+    for h in os.environ.get("RELACK_VECDRAW_HOSTS", "vecdraw.reflex-ddns.com").split(",")
+    if h.strip()
+}
+_VECDRAW_DOC_RE = re.compile(r"^/doc/([A-Za-z0-9-]+)/?$")
+
 # Local dev only: allow previews of localhost / LAN URLs.
 _ALLOW_PRIVATE = os.environ.get("RELACK_PREVIEW_ALLOW_PRIVATE", "") == "1"
 
@@ -185,6 +194,10 @@ def _fetch_target(url: str) -> str:
         m = _DICOM_SERIES_RE.match(parsed.path)
         if m:
             return f"{parsed.scheme}://{parsed.netloc}/_dicom_viewer/og/{m.group(1)}"
+    if host in _VECDRAW_HOSTS:
+        m = _VECDRAW_DOC_RE.match(parsed.path)
+        if m:
+            return f"{parsed.scheme}://{parsed.netloc}/_vecdraw/og/{m.group(1)}"
     return url
 
 
